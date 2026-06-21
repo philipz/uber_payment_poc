@@ -1,0 +1,27 @@
+src/services/batch-creator/dashboard.ts
+  s_0fe26885633c60::t_64d13d405db654 64-65,71-73
+  s_0fe26885633c60::t_0717244e950614 88-91
+src/services/batch-creator/index.ts
+  s_0fe26885633c60::t_ea02bfae4fb417 211
+  s_0fe26885633c60::t_91ddf67e846856 24-32,44-51
+  s_0fe26885633c60::t_1bb28fc5fd70dd 64-65,67
+src/shared/lua.ts
+  s_0fe26885633c60::t_f3534a8a0fd139 47-51
+  s_0fe26885633c60::t_a56a5b669e9912 81-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "0b7cca393c85ecc59f12d72429c69ec635471af3",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
