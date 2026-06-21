@@ -24,44 +24,55 @@ async function writeResult(result: TaskResult): Promise<void> {
 async function processTask(task: Task): Promise<void> {
   const { taskId, accountId, transaction } = task;
 
-  for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
-    const read = await pool.query<{ balance: string; version: number }>(
-      'SELECT balance, version FROM accounts WHERE id = $1',
-      [accountId],
-    );
-    if (read.rowCount === 0) {
-      await writeResult({ taskId, accountId, status: 'error', error: 'account not found' });
-      return;
+  try {
+    for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
+      if (attempt > 0) {
+        // jitter 5~25ms 錯開重試（Phase 3 多 worker 競爭時避免驚群效應）
+        await new Promise((r) => setTimeout(r, 5 + Math.random() * 20));
+      }
+
+      const read = await pool.query<{ balance: string; version: number }>(
+        'SELECT balance, version FROM accounts WHERE id = $1',
+        [accountId],
+      );
+      if (read.rowCount === 0) {
+        await writeResult({ taskId, accountId, status: 'error', error: 'account not found' });
+        return;
+      }
+
+      const balance = Number(read.rows[0].balance); // BIGINT 以字串回傳，轉數值
+      const version = read.rows[0].version;
+      const newBalance = applyOperation(balance, transaction.operationType, transaction.amount);
+
+      // 樂觀鎖條件寫入：僅當版本未被他人推進時才更新
+      const upd = await pool.query(
+        'UPDATE accounts SET balance = $1, version = version + 1 WHERE id = $2 AND version = $3',
+        [newBalance, accountId, version],
+      );
+
+      if (upd.rowCount === 1) {
+        await writeResult({
+          taskId,
+          accountId,
+          status: 'ok',
+          balance: newBalance,
+          version: version + 1,
+          az: config.azId,
+        });
+        return;
+      }
+      // rowCount === 0：版本衝突，重讀重試
+      console.warn(
+        `[${config.serviceName}] OCC 衝突 account=${accountId} ver=${version}，重試 ${attempt + 1}`,
+      );
     }
 
-    const balance = Number(read.rows[0].balance); // BIGINT 以字串回傳，轉數值
-    const version = read.rows[0].version;
-    const newBalance = applyOperation(balance, transaction.operationType, transaction.amount);
-
-    // 樂觀鎖條件寫入：僅當版本未被他人推進時才更新
-    const upd = await pool.query(
-      'UPDATE accounts SET balance = $1, version = version + 1 WHERE id = $2 AND version = $3',
-      [newBalance, accountId, version],
-    );
-
-    if (upd.rowCount === 1) {
-      await writeResult({
-        taskId,
-        accountId,
-        status: 'ok',
-        balance: newBalance,
-        version: version + 1,
-        az: config.azId,
-      });
-      return;
-    }
-    // rowCount === 0：版本衝突，重讀重試
-    console.warn(
-      `[${config.serviceName}] OCC 衝突 account=${accountId} ver=${version}，重試 ${attempt + 1}`,
-    );
+    await writeResult({ taskId, accountId, status: 'error', error: 'conflict' });
+  } catch (err) {
+    // DB 連線中斷/逾時等：主動寫 error 結果，讓 creator 即時收到 500，不必枯等逾時
+    console.error(`[${config.serviceName}] processTask 發生異常:`, err);
+    await writeResult({ taskId, accountId, status: 'error', error: 'internal' }).catch(() => {});
   }
-
-  await writeResult({ taskId, accountId, status: 'error', error: 'conflict' });
 }
 
 async function workLoop(): Promise<void> {

@@ -45,6 +45,27 @@ describe('Phase 1 端到端：單筆交易', () => {
     expect(b2.version).toBe(b1.version + 1);
   });
 
+  it('相同 transactionId 重送具基本冪等（不重複記帳）', async () => {
+    const txId = randomUUID();
+    const make = (): Promise<Response> =>
+      fetch(`${BASE_URL}/accounts/${ACCOUNT}/transactions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          transactionId: txId,
+          operationType: OperationType.Credit,
+          amount: 100,
+        }),
+      });
+
+    const b1 = (await (await make()).json()) as TxnResponse;
+    const b2 = (await (await make()).json()) as TxnResponse;
+
+    // 第二次應回快取結果：餘額與版本皆不變（未被二次套用）
+    expect(b2.balance).toBe(b1.balance);
+    expect(b2.version).toBe(b1.version);
+  });
+
   it('未知賬戶回 404', async () => {
     const res = await postTxn('does-not-exist', OperationType.Credit, 1);
     expect(res.status).toBe(404);

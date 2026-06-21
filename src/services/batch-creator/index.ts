@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
@@ -16,13 +15,23 @@ const redis = createRedis(config);
 
 const POLL_INTERVAL_MS = 10;
 const POLL_TIMEOUT_MS = 5000;
+const MAX_BODY_BYTES = 1024 * 1024; // 1MB，避免無限緩衝導致 OOM
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
+    let length = 0;
+    req.on('data', (c: Buffer) => {
+      length += c.length;
+      if (length > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error('payload too large'));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve({});
@@ -68,6 +77,20 @@ async function pollResult(taskId: string): Promise<TaskResult | null> {
   return null;
 }
 
+// 將 worker 寫回的結果映射成 HTTP 回應。
+function respondWithResult(res: ServerResponse, result: TaskResult): void {
+  if (result.status === 'error') {
+    const status =
+      result.error === 'account not found' ? 404 : result.error === 'conflict' ? 409 : 500;
+    return sendJson(res, status, { error: result.error });
+  }
+  return sendJson(res, 200, {
+    accountId: result.accountId,
+    balance: result.balance,
+    version: result.version,
+  });
+}
+
 async function handleTransaction(
   accountId: string,
   req: IncomingMessage,
@@ -77,27 +100,26 @@ async function handleTransaction(
     let body: unknown;
     try {
       body = await readJson(req);
-    } catch {
-      return sendJson(res, 400, { error: 'invalid json' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'invalid json';
+      return sendJson(res, msg === 'payload too large' ? 413 : 400, { error: msg });
     }
     const txn = parseTransaction(body);
     if (!txn) return sendJson(res, 400, { error: 'invalid transaction' });
 
-    const task: Task = { taskId: randomUUID(), accountId, transaction: txn };
+    // 以客戶端 transactionId 作為 taskId，提供基本冪等：
+    // 若結果快取中已有同一交易的結果（results cache TTL 窗口內），直接回傳，避免重試造成重複記帳。
+    // 注意：這是輕量防護，非完整去重——兩個並發同 id 仍可能雙進，TTL 過後亦失效；完整去重待專門處理。
+    const taskId = txn.transactionId;
+    const cached = await redis.get(resultKey(taskId));
+    if (cached) return respondWithResult(res, JSON.parse(cached) as TaskResult);
+
+    const task: Task = { taskId, accountId, transaction: txn };
     await redis.lpush(GLOBAL_QUEUE, JSON.stringify(task));
 
-    const result = await pollResult(task.taskId);
+    const result = await pollResult(taskId);
     if (!result) return sendJson(res, 504, { error: 'processing timeout' });
-    if (result.status === 'error') {
-      const status =
-        result.error === 'account not found' ? 404 : result.error === 'conflict' ? 409 : 500;
-      return sendJson(res, status, { error: result.error });
-    }
-    return sendJson(res, 200, {
-      accountId: result.accountId,
-      balance: result.balance,
-      version: result.version,
-    });
+    return respondWithResult(res, result);
   } catch (err) {
     console.error(`[${config.serviceName}] handleTransaction error:`, err);
     if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
