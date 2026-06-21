@@ -42,20 +42,20 @@
 ## 架構
 
 ```
-                         ┌──────────────────────────────────────────────┐
-  client ──REST──▶ batch-creator ──Lua(ACCUMULATE)──▶ Redis 窗口 bucket   │
-   (POST txn)        │  每窗口 setTimeout / sweeper ──Lua(CLOSE/SWEEP)──┐ │
-   輪詢 results       │                                                  ▼ │
-        ◀────────────┘                                   Redis 全域任務佇列
-                                                                  │  (BRPOP 競爭)
-              ┌──────────────┬──────────────┬──────────────┐
-        batch-process-az1  -az2           -az3      （樂觀鎖 Exactly-Once）
-              │  單次讀 → 記憶體重放 → 單次 UPDATE...WHERE version=?
-              │  寫 results cache、推 audit 佇列、發領域事件
-              ▼
-        Postgres（accounts 主庫 + audit 審計）        post-process（消費 audit 佇列 → 落 MicroUAC，Kafka stub）
-                                                                  │
-  瀏覽器 ◀──SSE── batch-creator ◀── Redis pub/sub「events」── 各服務發布狀態機事件
+                          ┌──────────────────────────────────────────────┐
+   client ──REST──▶ batch-creator ──Lua(ACCUMULATE)──▶ Redis 窗口 bucket   │
+    (POST txn)        │  每窗口 setTimeout / sweeper ──Lua(CLOSE/SWEEP)──┐ │
+    輪詢 results       │                                                  ▼ │
+         ◀────────────┘                                   Redis 全域任務佇列
+                                                                    │  (BLMOVE 競爭)
+               ┌──────────────┬──────────────┬──────────────┐       ▼
+         batch-process-az1  -az2           -az3      （可靠佇列與重認領機制）
+               │  單次讀 → 記憶體重放與去重 → 單次 DB 事務（餘額/去重表/審計原子落庫）
+               │  寫 results cache、推 finalize 佇列、發領域事件
+               ▼
+         Postgres（accounts 主庫 + audit 審計）        post-process（消費 finalize 佇列 → Kafka stub）
+                                                                    │
+   瀏覽器 ◀──SSE── batch-creator ◀── Redis pub/sub「events」── 各服務發布狀態機事件
 ```
 
 ### 服務一覽
@@ -63,8 +63,8 @@
 | 服務 | 角色 | Port |
 | ---- | ---- | ---- |
 | `batch-creator` | 接收 REST、Lua 窗口歸集、輪詢結果、SSE 儀表板、`/metrics` | **3000（對外）** |
-| `batch-process-az1/2/3` | 3 個 AZ 節點競爭領取、樂觀鎖寫主庫（Exactly-Once）| 3001（內部）|
-| `post-process` | 非同步消費審計佇列、落 MicroUAC、Kafka stub | 3002（內部）|
+| `batch-process-az1/2/3` | 3 個 AZ 節點競爭領取（BLMOVE）、樂觀鎖與審計原子落庫 | 3001（內部）|
+| `post-process` | 消費 finalize 佇列、發布下游 Kafka stub 與狀態機事件 | 3002（內部）|
 | `redis` | 窗口協調 / 全域佇列 / results cache / 事件匯流排 | 6379 |
 | `postgres` | User Account Store（`accounts`）+ 審計（`audit`）| 5432 |
 | `load-generator` | 對照負載工具（profile `tools`，預設不啟動）| — |
@@ -240,8 +240,8 @@ src/
     events.ts               # emitEvent（單一事實來源：publish + log）
   services/
     batch-creator/          # REST、窗口歸集、輪詢、SSE 儀表板、/metrics
-    batch-process/          # 競爭領取、樂觀鎖寫、審計推送、發事件
-    post-process/           # 消費審計佇列、落 MicroUAC、Kafka stub
+    batch-process/          # 可靠佇列領取（BLMOVE）、樂觀鎖與審計原子落庫、發送下游通知、發事件
+    post-process/           # 消費 finalize 佇列、發布下游 Kafka stub 與狀態機事件
     load-generator/         # 對照負載 runner + CLI
 test/
   unit/                     # 純函式單元測試
