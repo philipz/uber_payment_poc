@@ -50,6 +50,12 @@ export interface Task {
   transactions: TransactionInput[];
 }
 
+// 後處理審計任務：一個已提交 batch 的 MicroUAC 集合（hex 編碼）
+export interface AuditJob {
+  accountId: string;
+  microUacs: string[]; // 每筆為 48-byte MicroUAC 的 hex
+}
+
 // worker 寫入結果快取、creator 輪詢回傳
 export interface TaskResult {
   taskId: string;
