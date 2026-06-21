@@ -15,7 +15,8 @@ const resultRedis = createRedis(config);
 const pool = new Pool({ connectionString: config.databaseUrl });
 
 const RESULT_TTL_SECONDS = 30;
-const MAX_OCC_RETRIES = 5;
+// 多 worker 同時處理同一賬戶的不同批次時會發生 OCC 衝突，需足夠重試次數確保最終都能提交
+const MAX_OCC_RETRIES = 20;
 
 async function writeResult(result: TaskResult): Promise<void> {
   await resultRedis.set(resultKey(result.taskId), JSON.stringify(result), 'EX', RESULT_TTL_SECONDS);

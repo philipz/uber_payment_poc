@@ -36,7 +36,7 @@ jobs:
         run: |
           for i in $(seq 1 30); do
             healthy=$(docker compose ps --format '{{.Health}}' | grep -c healthy || true)
-            if [ "$healthy" -ge 5 ]; then echo "all healthy"; exit 0; fi
+            if [ "$healthy" -ge 7 ]; then echo "all healthy"; exit 0; fi
             sleep 2
           done
           echo "容器未在時限內全部健康"
