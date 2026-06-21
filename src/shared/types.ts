@@ -42,12 +42,16 @@ export interface TransactionInput {
   businessTime?: number;
 }
 
+// 處理模式：batched（250ms 窗口聚合）vs naive（每筆直接讀-改-寫，舊架構基準線）
+export type Mode = 'batched' | 'naive';
+
 // 推入全域佇列的任務（Phase 2 起：一個 batch = 同帳戶同窗口的多筆交易）
 export interface Task {
   taskId: string;
   accountId: string;
   windowStart: number;
   transactions: TransactionInput[];
+  mode?: Mode; // 缺省視為 batched
 }
 
 // 後處理審計任務：一個已提交 batch 的 MicroUAC 集合（hex 編碼）

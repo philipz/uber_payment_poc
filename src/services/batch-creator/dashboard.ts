@@ -36,7 +36,16 @@ export const DASHBOARD_HTML = `<!doctype html>
 </header>
 <div class="wrap">
   <div>
-    <h2>賬戶最新狀態</h2>
+    <h2>對照組：批次 vs 天真單筆</h2>
+    <table>
+      <thead><tr><th>指標</th><th class="num">batched</th><th class="num">naive</th></tr></thead>
+      <tbody id="metrics">
+        <tr><td>請求數</td><td class="num" id="m-rb">0</td><td class="num" id="m-rn">0</td></tr>
+        <tr><td>DB 寫入數</td><td class="num" id="m-wb">0</td><td class="num" id="m-wn">0</td></tr>
+        <tr><td>壓縮比（請求/寫入）</td><td class="num" id="m-cb">-</td><td class="num" id="m-cn">-</td></tr>
+      </tbody>
+    </table>
+    <h2 style="margin-top:16px">賬戶最新狀態</h2>
     <table>
       <thead><tr><th>Account</th><th>狀態</th><th class="num">餘額</th><th class="num">版本</th><th>AZ</th></tr></thead>
       <tbody id="accounts"></tbody>
@@ -97,6 +106,21 @@ export const DASHBOARD_HTML = `<!doctype html>
   es.onopen = () => { statusEl.textContent = '已連線'; };
   es.onerror = () => { statusEl.textContent = '連線中斷，重試中…'; };
   es.onmessage = (m) => { try { onEvent(JSON.parse(m.data)); } catch (_) {} };
+
+  const ratio = (req, db) => (db > 0 ? (req / db).toFixed(1) + 'x' : '-');
+  async function pollMetrics() {
+    try {
+      const m = await (await fetch('/metrics')).json();
+      document.getElementById('m-rb').textContent = m.batched.requests;
+      document.getElementById('m-rn').textContent = m.naive.requests;
+      document.getElementById('m-wb').textContent = m.batched.dbWrites;
+      document.getElementById('m-wn').textContent = m.naive.dbWrites;
+      document.getElementById('m-cb').textContent = ratio(m.batched.requests, m.batched.dbWrites);
+      document.getElementById('m-cn').textContent = ratio(m.naive.requests, m.naive.dbWrites);
+    } catch (_) {}
+  }
+  pollMetrics();
+  setInterval(pollMetrics, 1000);
 </script>
 </body>
 </html>

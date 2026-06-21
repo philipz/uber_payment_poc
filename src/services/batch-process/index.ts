@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
-import { AUDIT_QUEUE, GLOBAL_QUEUE, resultKey } from '../../shared/keys';
+import { AUDIT_QUEUE, GLOBAL_QUEUE, dbWritesKey, resultKey } from '../../shared/keys';
 import { replayBatch } from '../../shared/operations';
 import { packMicroUAC } from '../../shared/microuac';
 import { emitEvent } from '../../shared/events';
@@ -106,6 +106,10 @@ async function processTask(task: Task): Promise<void> {
 
       if (upd.rowCount === 1) {
         const newVersion = version + 1;
+        // 對照組計量：每次成功提交（= 一次 DB 寫入）計數，依模式歸戶
+        resultRedis.incr(dbWritesKey(task.mode ?? 'batched')).catch((err) => {
+          console.error(`[${config.serviceName}] dbWrites metric incr failed:`, err);
+        });
         // 為每筆交易寫各自的結果（該筆之後的餘額 + 整批提交後的版本）。
         // 用 pipeline 將整批結果打包單次往返，降低 RTT 與 Redis 開銷。
         const pipeline = resultRedis.pipeline();

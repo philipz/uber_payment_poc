@@ -2,12 +2,21 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
-import { EVENTS_CHANNEL, GLOBAL_QUEUE, WINDOW_MS, resultKey } from '../../shared/keys';
+import {
+  EVENTS_CHANNEL,
+  GLOBAL_QUEUE,
+  WINDOW_MS,
+  dbWritesKey,
+  requestsKey,
+  resultKey,
+} from '../../shared/keys';
 import { ACCUMULATE_LUA, CLOSE_ONE_LUA, SWEEP_LUA } from '../../shared/lua';
 import { emitEvent } from '../../shared/events';
 import {
   OperationType,
   TxnState,
+  type Mode,
+  type Task,
   type TaskResult,
   type TransactionInput,
 } from '../../shared/types';
@@ -158,6 +167,7 @@ function respondWithResult(res: ServerResponse, result: TaskResult): void {
 
 async function handleTransaction(
   accountId: string,
+  mode: Mode,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -175,6 +185,9 @@ async function handleTransaction(
     const txn = parseTransaction(body);
     if (!txn) return sendJson(res, 400, { error: 'invalid transaction' });
 
+    redis.incr(requestsKey(mode)).catch((err) => {
+      console.error(`[${config.serviceName}] requests metric incr failed:`, err);
+    });
     void emitEvent(redis, {
       ts: Date.now(),
       state: TxnState.Ingested,
@@ -188,27 +201,39 @@ async function handleTransaction(
     const cached = await redis.get(resultKey(txn.transactionId));
     if (cached) return respondWithResult(res, JSON.parse(cached) as TaskResult);
 
-    // 透過 Lua（以 Redis TIME 為權威時鐘）將交易歸集進當前 250ms 窗口
-    const [windowStart, isNew, msUntilClose] = (await redis.eval(
-      ACCUMULATE_LUA,
-      0,
-      accountId,
-      JSON.stringify(txn),
-      String(WINDOW_MS),
-    )) as [number, number, number];
+    if (mode === 'naive') {
+      // 天真基準線：每筆 = 一個任務，繞過 250ms 窗口聚合，直接由 worker 做單筆讀-改-寫
+      const task: Task = {
+        taskId: txn.transactionId,
+        accountId,
+        windowStart: -1,
+        transactions: [txn],
+        mode: 'naive',
+      };
+      await redis.lpush(GLOBAL_QUEUE, JSON.stringify(task));
+    } else {
+      // 透過 Lua（以 Redis TIME 為權威時鐘）將交易歸集進當前 250ms 窗口
+      const [windowStart, isNew, msUntilClose] = (await redis.eval(
+        ACCUMULATE_LUA,
+        0,
+        accountId,
+        JSON.stringify(txn),
+        String(WINDOW_MS),
+      )) as [number, number, number];
 
-    void emitEvent(redis, {
-      ts: Date.now(),
-      state: TxnState.Accumulating,
-      accountId,
-      transactionId: txn.transactionId,
-      windowStart,
-    });
+      void emitEvent(redis, {
+        ts: Date.now(),
+        state: TxnState.Accumulating,
+        accountId,
+        transactionId: txn.transactionId,
+        windowStart,
+      });
 
-    // 新窗口：排一個 setTimeout 在截止時「只關閉自己這個窗口」（sweeper 為兜底）
-    if (isNew === 1) {
-      const bucket = `batch:${windowStart}:${accountId}`;
-      setTimeout(() => void closeWindow(bucket), Math.max(0, msUntilClose));
+      // 新窗口：排一個 setTimeout 在截止時「只關閉自己這個窗口」（sweeper 為兜底）
+      if (isNew === 1) {
+        const bucket = `batch:${windowStart}:${accountId}`;
+        setTimeout(() => void closeWindow(bucket), Math.max(0, msUntilClose));
+      }
     }
 
     const result = await pollResult(txn.transactionId);
@@ -220,21 +245,52 @@ async function handleTransaction(
   }
 }
 
+async function handleMetrics(res: ServerResponse): Promise<void> {
+  try {
+    const [rb, wb, rn, wn] = await redis.mget(
+      requestsKey('batched'),
+      dbWritesKey('batched'),
+      requestsKey('naive'),
+      dbWritesKey('naive'),
+    );
+    sendJson(res, 200, {
+      batched: { requests: Number(rb) || 0, dbWrites: Number(wb) || 0 },
+      naive: { requests: Number(rn) || 0, dbWrites: Number(wn) || 0 },
+    });
+  } catch {
+    sendJson(res, 500, { error: 'metrics error' });
+  }
+}
+
 const TXN_ROUTE = /^\/accounts\/([^/]+)\/transactions$/;
 
 function routes(req: IncomingMessage, res: ServerResponse): boolean {
-  if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const pathname = url.pathname;
+  if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(DASHBOARD_HTML);
     return true;
   }
-  if (req.method === 'GET' && req.url === '/events') {
+  if (req.method === 'GET' && pathname === '/events') {
     handleSse(req, res);
     return true;
   }
-  const match = req.url ? TXN_ROUTE.exec(req.url) : null;
+  if (req.method === 'GET' && pathname === '/metrics') {
+    void handleMetrics(res);
+    return true;
+  }
+  const match = TXN_ROUTE.exec(pathname);
   if (req.method === 'POST' && match) {
-    void handleTransaction(decodeURIComponent(match[1]), req, res);
+    let accountId: string;
+    try {
+      accountId = decodeURIComponent(match[1]);
+    } catch {
+      sendJson(res, 400, { error: 'invalid account id encoding' });
+      return true;
+    }
+    const mode: Mode = url.searchParams.get('mode') === 'naive' ? 'naive' : 'batched';
+    void handleTransaction(accountId, mode, req, res);
     return true;
   }
   return false;
