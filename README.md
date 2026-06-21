@@ -38,7 +38,16 @@ npm install
 npm run build      # tsc → dist/
 npm run lint       # prettier 檢查
 npm run format     # prettier 修正
+npm run test:unit  # 純函式單元測試（Vitest）
+npm run test:e2e   # 端到端測試（需先 docker compose up）
 ```
+
+## 測試 / CI
+
+- **Unit**（Vitest）：純函式、快又穩（如 MicroUAC pack/unpack、餘額重放）。
+- **E2E**（Vitest + docker compose）：把驗收條件變成可重跑測試（餘額/版本/壓縮比/Exactly-Once）。
+- **GitHub Actions**（`.github/workflows/ci.yml`）：每個 PR 跑 `lint`+`build`+`unit`，另一個 job 拉起 compose 跑 E2E。
+- 策略「右尺寸」：每個 phase 隨功能補上對應的 E2E 驗收測試。
 
 ## 實作進度
 

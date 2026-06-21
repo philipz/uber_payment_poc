@@ -6,8 +6,11 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "prettier --check \"src/**/*.ts\"",
-    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "prettier --check \"{src,test}/**/*.ts\"",
+    "format": "prettier --write \"{src,test}/**/*.ts\"",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:e2e": "vitest run test/e2e",
     "start:creator": "node dist/services/batch-creator/index.js",
     "start:process": "node dist/services/batch-process/index.js",
     "start:post": "node dist/services/post-process/index.js"
@@ -20,6 +23,7 @@
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "prettier": "^3.4.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }
