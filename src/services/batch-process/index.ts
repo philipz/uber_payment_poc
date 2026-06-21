@@ -304,14 +304,20 @@ async function workLoop(): Promise<void> {
   await resultRedis.sadd(WORKERS_SET, workerId);
   await heartbeat();
   await resultRedis.eval(RECLAIM_LUA, 0, PROCESSING, GLOBAL_QUEUE); // 復原自身上次的在途任務
-  setInterval(
-    () => void heartbeat().catch((e) => console.error('heartbeat error:', e)),
-    HEARTBEAT_MS,
-  );
-  setInterval(
-    () => void reclaimDeadWorkers().catch((e) => console.error('reclaim error:', e)),
-    RECLAIM_MS,
-  );
+
+  // 用遞迴 setTimeout（而非 setInterval）排程，確保前次執行完成才排下一次，避免非同步重疊
+  const runHeartbeat = (): void => {
+    heartbeat()
+      .catch((e) => console.error('heartbeat error:', e))
+      .finally(() => setTimeout(runHeartbeat, HEARTBEAT_MS));
+  };
+  const runReclaim = (): void => {
+    reclaimDeadWorkers()
+      .catch((e) => console.error('reclaim error:', e))
+      .finally(() => setTimeout(runReclaim, RECLAIM_MS));
+  };
+  runHeartbeat();
+  runReclaim();
 
   console.log(`[${config.serviceName}] worker up (az=${workerId})，開始領取任務`);
   for (;;) {
@@ -319,10 +325,14 @@ async function workLoop(): Promise<void> {
       // BLMOVE：原子地把任務移入自己的 processing list（崩潰時任務不丟，留待重認領）
       const taskJson = await queueRedis.blmove(GLOBAL_QUEUE, PROCESSING, 'RIGHT', 'LEFT', 5);
       if (!taskJson) continue; // 逾時，繼續等待
-      const task = JSON.parse(taskJson) as Task;
-      await processTask(task);
-      // 處理完成（含終態錯誤）→ 確認移除；若中途崩潰則留在 processing list 被重認領
-      await queueRedis.lrem(PROCESSING, 1, taskJson);
+      try {
+        const task = JSON.parse(taskJson) as Task;
+        await processTask(task);
+      } finally {
+        // 任務一旦成功取出，無論處理成功或例外都從 processing list 移除（避免壞任務永久殘留）；
+        // 唯有「程序崩潰」不會走到此處 → 任務留存待其他 worker 重認領。
+        await queueRedis.lrem(PROCESSING, 1, taskJson);
+      }
     } catch (err) {
       console.error(`[${config.serviceName}] work loop error:`, err);
     }
