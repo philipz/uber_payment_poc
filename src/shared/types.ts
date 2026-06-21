@@ -54,11 +54,11 @@ export interface Task {
   mode?: Mode; // 缺省視為 batched
 }
 
-// 後處理審計任務：一個已提交 batch 的 MicroUAC 集合（hex 編碼）
-export interface AuditJob {
+// 下游 finalize 通知：一個已提交 batch 的摘要（審計已在主交易內落庫，此處僅供下游傳播）
+export interface FinalizeJob {
   accountId: string;
   batchId: string;
-  microUacs: string[]; // 每筆為 48-byte MicroUAC 的 hex
+  count: number; // 本批次套用的交易數
 }
 
 // 狀態機領域事件（廣播給儀表板）。並非每個欄位都適用於每個狀態。

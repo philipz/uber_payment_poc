@@ -56,4 +56,44 @@ describe('Phase 4 後處理審計：MicroUAC 落庫', () => {
     expect(decoded.amount).toBe(BigInt(AMOUNT));
     expect(decoded.accountVersion).toBe(1); // 全新帳戶首次提交
   });
+
+  it('餘額變更與審計原子一致：每筆套用交易恰有一筆審計（無懸空狀態）', async () => {
+    const acc = `audit-atomic-${Math.random().toString(36).substring(2, 9)}`;
+    await pool.query('INSERT INTO accounts (id, balance, version) VALUES ($1, 0, 0)', [acc]);
+
+    const N = 20;
+    const responses = await Promise.all(
+      Array.from({ length: N }, () =>
+        fetch(`${BASE_URL}/accounts/${acc}/transactions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            transactionId: randomUUID(),
+            operationType: OperationType.Credit,
+            amount: 1,
+          }),
+        }),
+      ),
+    );
+    for (const r of responses) expect(r.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 500));
+
+    // 審計筆數 == 已套用交易數 == 餘額；審計與餘額在同交易原子落庫，不會多也不會少
+    const audit = await pool.query<{ n: string }>(
+      'SELECT count(*) AS n FROM audit WHERE account_id = $1',
+      [acc],
+    );
+    const processed = await pool.query<{ n: string }>(
+      'SELECT count(*) AS n FROM processed_transactions WHERE account_id = $1',
+      [acc],
+    );
+    const bal = await pool.query<{ balance: string }>(
+      'SELECT balance FROM accounts WHERE id = $1',
+      [acc],
+    );
+
+    expect(Number(audit.rows[0].n)).toBe(N);
+    expect(Number(processed.rows[0].n)).toBe(N);
+    expect(Number(bal.rows[0].balance)).toBe(N);
+  });
 });

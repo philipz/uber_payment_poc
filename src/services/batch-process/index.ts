@@ -3,13 +3,13 @@ import { Pool } from 'pg';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
-import { AUDIT_QUEUE, GLOBAL_QUEUE, dbWritesKey, resultKey } from '../../shared/keys';
+import { FINALIZE_QUEUE, GLOBAL_QUEUE, dbWritesKey, resultKey } from '../../shared/keys';
 import { dedupeTransactions, replayBatch, type ReplayStep } from '../../shared/operations';
 import { packMicroUAC } from '../../shared/microuac';
 import { emitEvent } from '../../shared/events';
 import {
   TxnState,
-  type AuditJob,
+  type FinalizeJob,
   type Task,
   type TaskResult,
   type TransactionInput,
@@ -27,13 +27,13 @@ const RESULT_TTL_SECONDS = 30;
 // 多 worker 同時處理同一賬戶的不同批次時會發生 OCC 衝突，需足夠重試次數確保最終都能提交
 const MAX_OCC_RETRIES = 20;
 
-// 由一筆交易產生 48-byte MicroUAC 的 hex。
+// 由一筆交易產生 48-byte MicroUAC（Buffer，供 bytea 落庫）。
 // transactionId 為字串，取其 MD5 前 8 bytes 收斂為 Int64（PoC 適配）；ReferenceHash 為 referenceId 的 MD5。
-function microUacHexFor(
+function microUacFor(
   txn: TransactionInput,
   sequenceNumber: number,
   accountVersion: number,
-): string {
+): Buffer {
   const tidHash = createHash('md5').update(txn.transactionId).digest();
   const transactionId = BigInt.asIntN(64, tidHash.readBigUInt64BE(0));
   const referenceHash = createHash('md5')
@@ -47,7 +47,7 @@ function microUacHexFor(
     accountVersion,
     referenceHash,
     businessTime: txn.businessTime ?? Math.floor(Date.now() / 1000),
-  }).toString('hex');
+  });
 }
 
 async function writeResult(result: TaskResult): Promise<void> {
@@ -162,6 +162,19 @@ async function processTask(task: Task): Promise<void> {
                   `VALUES ${placeholders.join(', ')} ON CONFLICT (transaction_id) DO NOTHING`,
                 values,
               );
+
+              // 同事務寫入審計（MicroUAC）→ 與餘額變更原子一致，杜絕「有變更無審計」懸空狀態
+              const auditValues: unknown[] = [];
+              const auditPh = appliedTxns.map((t, i) => {
+                const b = i * 3;
+                auditValues.push(accountId, microUacFor(t, i, version + 1), 'Committed');
+                return `($${b + 1}, $${b + 2}, $${b + 3})`;
+              });
+              await client.query(
+                `INSERT INTO audit (account_id, micro_uac, status) VALUES ${auditPh.join(', ')}`,
+                auditValues,
+              );
+
               await client.query('COMMIT');
               committedVersion = version + 1;
               outcome = 'committed';
@@ -210,14 +223,17 @@ async function processTask(task: Task): Promise<void> {
       }
       await pipeline.exec();
 
-      // 審計只記真正套用的新交易（不佔交易關鍵路徑，獨立 try-catch 不影響已提交結果）
+      // 審計已於主交易內原子落庫（無懸空狀態）；此處僅推下游 finalize 通知（Kafka/Finalized），
+      // 通知遺失不影響審計（審計已持久化）。
       if (didWrite) {
         try {
-          const microUacs = appliedTxns.map((t, i) => microUacHexFor(t, i, committedVersion));
-          const auditJob: AuditJob = { accountId, batchId: task.taskId, microUacs };
-          await resultRedis.lpush(AUDIT_QUEUE, JSON.stringify(auditJob));
-        } catch (auditErr) {
-          console.error(`[${config.serviceName}] 寫入審計佇列失敗（non-blocking）:`, auditErr);
+          const job: FinalizeJob = { accountId, batchId: task.taskId, count: appliedTxns.length };
+          await resultRedis.lpush(FINALIZE_QUEUE, JSON.stringify(job));
+        } catch (notifyErr) {
+          console.error(
+            `[${config.serviceName}] 推送 finalize 通知失敗（non-blocking）:`,
+            notifyErr,
+          );
         }
       }
 

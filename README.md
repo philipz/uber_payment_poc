@@ -25,9 +25,15 @@
 | 1 | 最薄端到端切片 | REST → Redis 佇列 → worker 樂觀鎖寫 → 回應 |
 | 2 | 250ms 時間窗口聚合 | **N 筆請求 → 1 次 DB 讀 + 1 次 DB 寫**（Lua + Redis TIME 權威時鐘）|
 | 3 | 多 worker 競爭 + Exactly-Once | 3 AZ 競爭領取，30 並發批次 → 恰好 30 次提交、無重複/遺漏 |
-| 4 | MicroUAC 48-byte 審計 | 每筆審計恰 48 bytes、可解碼回欄位、非同步落庫 |
+| 4 | MicroUAC 48-byte 審計 | 每筆審計恰 48 bytes、可解碼回欄位、與餘額同交易原子落庫 |
 | 5 | SSE 狀態機儀表板 | `Ingested→Accumulating→Queued→Processing→Committed→Finalized` 即時可視 |
 | 6 | 對照組壓縮比 | batched **25x** 壓縮比 vs naive 1:1 |
+
+### 資料一致性強化（依 analysis_results.md 修正）
+
+- ✅ **#15 交易級冪等**：`processed_transactions` 表 + 同交易去重，杜絕同一 `transactionId` 並發/重放造成的重複記帳；重試回傳歷史結果（嚴格冪等）。
+- ✅ **#16 審計原子化**：MicroUAC 與餘額更新置於**同一 DB 交易**，杜絕「有餘額變更但無審計」的懸空狀態；post-process 改為下游傳播（Kafka stub + Finalized 事件）。
+- ⏳ **#17 可靠佇列**（BLMOVE + 重認領）：規劃中。
 
 **範圍與限制（見 ADR 0001）**：本 PoC 是「架構可行性 demo」，**不**驗證真實 Multi-AZ 跨區容錯、分散式時鐘漂移、嚴格吞吐/延遲 benchmark；壓縮比為示意。降級直連、影子雙寫校驗、流量放大壓測等亦在範圍外。
 
