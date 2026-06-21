@@ -59,6 +59,15 @@ npm run test:e2e   # 端到端測試（需先 docker compose up）
 - ✅ **Phase 3**：多 worker 競爭 + Exactly-Once（3 個 AZ 節點搶同一佇列、樂觀鎖保證恰好一次提交、無重複/遺漏）
 - ✅ **Phase 4**：MicroUAC 48-byte 二進位審計 + 後處理（worker 提交後推審計佇列、post-process 非同步落庫、Kafka stub）
 - ✅ **Phase 5**：狀態機事件流 + SSE Web 儀表板（Redis pub/sub 事件匯流排、creator 轉發 SSE、瀏覽器開 `http://localhost:3000/` 即時看流轉）
+- ✅ **Phase 6**：對照組 Load Generator（批次 vs 天真單筆 `mode=naive`、壓縮比/攤薄延遲，儀表板 `/metrics` 兩欄對照）
+
+### 跑對照負載（需先 `docker compose up`）
+
+```bash
+docker compose --profile tools run --rm \
+  -e LOAD_CONCURRENCY=20 -e LOAD_DURATION_MS=3000 load-generator
+# 輸出 batched vs naive 的請求數 / DB 寫入數 / 壓縮比 / 吞吐量 / 平均延遲
+```
 
 ### 試打一筆交易（需先 `docker compose up`）
 
