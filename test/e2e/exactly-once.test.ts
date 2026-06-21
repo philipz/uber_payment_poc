@@ -9,7 +9,8 @@ import { OperationType, type Task } from '../../src/shared/types';
 // 需先 docker compose up（compose 已對外發布 6379 / 5432）。
 const REDIS_URL = process.env.E2E_REDIS_URL ?? 'redis://localhost:6379';
 const DB_URL = process.env.E2E_DATABASE_URL ?? 'postgres://poc:poc@localhost:5432/poc';
-const ACCOUNT = 'eo-account';
+// 每次跑用唯一帳戶，避免前次殘留佇列任務被背景 worker 處理造成 flaky
+const ACCOUNT = `eo-account-${Math.random().toString(36).substring(2, 9)}`;
 
 let redis: Redis;
 let pool: Pool;
@@ -26,8 +27,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await redis.quit();
-  await pool.end();
+  // 先檢查再清理，避免 beforeAll 初始化失敗時掩蓋真正錯誤
+  if (redis) await redis.quit();
+  if (pool) await pool.end();
 });
 
 describe('Phase 3 Exactly-Once（多 worker 競爭同一賬戶）', () => {
@@ -59,8 +61,10 @@ describe('Phase 3 Exactly-Once（多 worker 競爭同一賬戶）', () => {
         'SELECT balance, version FROM accounts WHERE id = $1',
         [ACCOUNT],
       );
-      balance = Number(r.rows[0].balance);
-      version = Number(r.rows[0].version);
+      if (r.rows[0]) {
+        balance = Number(r.rows[0].balance);
+        version = Number(r.rows[0].version);
+      }
       if (version >= K || Date.now() > deadline) break;
       await new Promise((res) => setTimeout(res, 100));
     }
