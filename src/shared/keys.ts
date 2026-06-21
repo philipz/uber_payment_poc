@@ -6,8 +6,9 @@ export const GLOBAL_QUEUE = 'tasks:global';
 // 時間窗口長度（毫秒）
 export const WINDOW_MS = 250;
 
-// 後處理審計佇列：worker 提交後推入、post-process 非同步消費落庫
-export const AUDIT_QUEUE = 'audit:queue';
+// 下游 finalize 通知佇列：審計已在主交易內原子落庫，此佇列僅供 post-process 做下游傳播
+// （Kafka stub + Finalized 事件）。通知遺失不影響審計（審計已持久化）。
+export const FINALIZE_QUEUE = 'finalize:queue';
 
 // 領域事件廣播頻道（Redis pub/sub）：各服務發布狀態機事件，creator 訂閱後轉發給 SSE 客戶端
 export const EVENTS_CHANNEL = 'events';
