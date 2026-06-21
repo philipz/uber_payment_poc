@@ -1,10 +1,12 @@
+import { createHash } from 'node:crypto';
 import { Pool } from 'pg';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
-import { GLOBAL_QUEUE, resultKey } from '../../shared/keys';
+import { AUDIT_QUEUE, GLOBAL_QUEUE, resultKey } from '../../shared/keys';
 import { replayBatch } from '../../shared/operations';
-import type { Task, TaskResult } from '../../shared/types';
+import { packMicroUAC } from '../../shared/microuac';
+import type { AuditJob, Task, TaskResult, TransactionInput } from '../../shared/types';
 
 const config = loadConfig();
 // 健康檢查伺服器（worker 非 HTTP 對外，但供 compose healthcheck 用）
@@ -17,6 +19,29 @@ const pool = new Pool({ connectionString: config.databaseUrl });
 const RESULT_TTL_SECONDS = 30;
 // 多 worker 同時處理同一賬戶的不同批次時會發生 OCC 衝突，需足夠重試次數確保最終都能提交
 const MAX_OCC_RETRIES = 20;
+
+// 由一筆交易產生 48-byte MicroUAC 的 hex。
+// transactionId 為字串，取其 MD5 前 8 bytes 收斂為 Int64（PoC 適配）；ReferenceHash 為 referenceId 的 MD5。
+function microUacHexFor(
+  txn: TransactionInput,
+  sequenceNumber: number,
+  accountVersion: number,
+): string {
+  const tidHash = createHash('md5').update(txn.transactionId).digest();
+  const transactionId = BigInt.asIntN(64, tidHash.readBigUInt64BE(0));
+  const referenceHash = createHash('md5')
+    .update(txn.referenceId ?? txn.transactionId)
+    .digest();
+  return packMicroUAC({
+    transactionId,
+    operationType: txn.operationType,
+    amount: BigInt(txn.amount),
+    sequenceNumber,
+    accountVersion,
+    referenceHash,
+    businessTime: txn.businessTime ?? Math.floor(Date.now() / 1000),
+  }).toString('hex');
+}
 
 async function writeResult(result: TaskResult): Promise<void> {
   await resultRedis.set(resultKey(result.taskId), JSON.stringify(result), 'EX', RESULT_TTL_SECONDS);
@@ -84,6 +109,17 @@ async function processTask(task: Task): Promise<void> {
           );
         }
         await pipeline.exec();
+
+        // 結果已寫入（creator 可回應），再把審計推給後處理非同步落庫（不佔交易關鍵路徑）。
+        // 用獨立 try-catch：審計入列失敗屬非關鍵路徑，絕不可覆寫已成功提交的交易結果（避免 dual-write 不一致）。
+        try {
+          const microUacs = transactions.map((t, i) => microUacHexFor(t, i, newVersion));
+          const auditJob: AuditJob = { accountId, microUacs };
+          await resultRedis.lpush(AUDIT_QUEUE, JSON.stringify(auditJob));
+        } catch (auditErr) {
+          console.error(`[${config.serviceName}] 寫入審計佇列失敗（non-blocking）:`, auditErr);
+        }
+
         console.log(
           `[${config.serviceName}] batch account=${accountId} window=${task.windowStart} ` +
             `txns=${transactions.length} → 1 read + 1 write, ver ${version}→${newVersion} (az=${config.azId})`,
