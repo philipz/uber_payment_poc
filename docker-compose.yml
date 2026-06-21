@@ -1,0 +1,94 @@
+# Payment Batching PoC — Phase 0 骨架
+# 所有 Node 服務共用同一映像，以 command 覆寫啟動的服務。
+
+x-app: &app
+  build: .
+  image: uber-payment-poc:latest
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+  environment: &app-env
+    REDIS_URL: redis://redis:6379
+    DATABASE_URL: postgres://poc:poc@postgres:5432/poc
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+    interval: 5s
+    timeout: 3s
+    retries: 10
+    start_period: 5s
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: poc
+      POSTGRES_PASSWORD: poc
+      POSTGRES_DB: poc
+    ports:
+      - '5432:5432'
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U poc -d poc']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  batch-creator:
+    <<: *app
+    command: ['node', 'dist/services/batch-creator/index.js']
+    ports:
+      - '3000:3000'
+    environment:
+      <<: *app-env
+      SERVICE_NAME: batch-creator
+      PORT: '3000'
+
+  batch-process:
+    <<: *app
+    command: ['node', 'dist/services/batch-process/index.js']
+    environment:
+      <<: *app-env
+      SERVICE_NAME: batch-process
+      PORT: '3001'
+      AZ_ID: az-1
+
+  post-process:
+    <<: *app
+    command: ['node', 'dist/services/post-process/index.js']
+    environment:
+      <<: *app-env
+      SERVICE_NAME: post-process
+      PORT: '3002'
+
+  # load-generator 是客戶端工具，預設不隨 `docker compose up` 啟動。
+  # 用 `docker compose --profile tools run --rm load-generator` 執行。
+  load-generator:
+    <<: *app
+    profiles: ['tools']
+    command: ['node', 'dist/services/load-generator/index.js']
+    healthcheck:
+      disable: true
+    depends_on:
+      batch-creator:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+      SERVICE_NAME: load-generator
+      PORT: '3003'
