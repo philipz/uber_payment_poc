@@ -110,10 +110,15 @@ async function processTask(task: Task): Promise<void> {
         }
         await pipeline.exec();
 
-        // 結果已寫入（creator 可回應），再把審計推給後處理非同步落庫（不佔交易關鍵路徑）
-        const microUacs = transactions.map((t, i) => microUacHexFor(t, i, newVersion));
-        const auditJob: AuditJob = { accountId, microUacs };
-        await resultRedis.lpush(AUDIT_QUEUE, JSON.stringify(auditJob));
+        // 結果已寫入（creator 可回應），再把審計推給後處理非同步落庫（不佔交易關鍵路徑）。
+        // 用獨立 try-catch：審計入列失敗屬非關鍵路徑，絕不可覆寫已成功提交的交易結果（避免 dual-write 不一致）。
+        try {
+          const microUacs = transactions.map((t, i) => microUacHexFor(t, i, newVersion));
+          const auditJob: AuditJob = { accountId, microUacs };
+          await resultRedis.lpush(AUDIT_QUEUE, JSON.stringify(auditJob));
+        } catch (auditErr) {
+          console.error(`[${config.serviceName}] 寫入審計佇列失敗（non-blocking）:`, auditErr);
+        }
 
         console.log(
           `[${config.serviceName}] batch account=${accountId} window=${task.windowStart} ` +
