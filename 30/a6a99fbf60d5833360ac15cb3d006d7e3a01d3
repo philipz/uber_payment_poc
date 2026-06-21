@@ -1,0 +1,40 @@
+src/services/batch-creator/dashboard.ts
+  s_0fe26885633c60::t_fddcf6ca08a383 39-48
+  s_0fe26885633c60::t_acf849867ab886 109-123
+test/e2e/load.test.ts
+  s_0fe26885633c60::t_5de026d8883c4f 1-43
+src/services/batch-creator/index.ts
+  s_0fe26885633c60::t_b905c3b10f245e 260,266-268,273,277-281,283-284
+  s_0fe26885633c60::t_ad7b95ad197370 5-12,18-19
+  s_0fe26885633c60::t_49a857164885e7 170,188,202-220,222-228,230-234,246-259
+src/shared/types.ts
+  s_0fe26885633c60::t_1f1e3f39f49f8f 45-47,54
+src/shared/keys.ts
+  s_0fe26885633c60::t_b32e3c0373de15 15-18
+src/services/load-generator/runner.ts
+  s_0fe26885633c60::t_742125245250a2 1-92
+src/services/load-generator/index.ts
+  s_0fe26885633c60::t_abd11ba3d14602 20-26
+  s_0fe26885633c60::t_8940a4a49c2037 2,4-9,11-19,27-57
+README.md
+  s_0fe26885633c60::t_d0547722691f18 62-70
+src/services/batch-process/index.ts
+  s_0fe26885633c60::t_a01c888343069e 6
+  s_0fe26885633c60::t_e8472fe8855b2f 109-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "30a6a99fbf60d5833360ac15cb3d006d7e3a01d3",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "unknown"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
