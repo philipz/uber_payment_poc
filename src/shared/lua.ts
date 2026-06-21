@@ -24,15 +24,40 @@ end
 return {windowStart, isNew, (windowStart + windowMs) - nowMs}
 `;
 
-// 關閉所有已到期的窗口：將其交易打包成單一 batch 任務推入全域佇列。
-// 由「每窗口 setTimeout」與「低頻 sweeper」共同呼叫，靠 Redis 單執行緒保證原子與冪等。
-// ARGV: [1]=queueKey
+// 關閉「單一」指定窗口（由該窗口的 setTimeout 精準觸發）。冪等：bucket 不存在則 no-op。
+// ARGV: [1]=bucket [2]=queueKey
+// 回傳: 1 表示有打包推入、0 表示空窗或已關閉
+export const CLOSE_ONE_LUA = `
+local bucket = ARGV[1]
+local queue = ARGV[2]
+local items = redis.call('LRANGE', bucket, 0, -1)
+redis.call('ZREM', 'windows:active', bucket)
+redis.call('DEL', bucket)
+if #items == 0 then return 0 end
+local rest = string.sub(bucket, 7)
+local sep = string.find(rest, ':')
+local windowStart = string.sub(rest, 1, sep - 1)
+local accountId = string.sub(rest, sep + 1)
+-- 注意：此處手動拼接 JSON 依賴 accountId 的嚴格字元限制（creator 已驗證 [A-Za-z0-9_-]）。
+-- 若未來放寬限制，必須改為轉義處理，否則 JSON 可能損壞或被注入。
+local task = '{"taskId":"' .. bucket .. '","accountId":"' .. accountId ..
+  '","windowStart":' .. windowStart ..
+  ',"transactions":[' .. table.concat(items, ',') .. ']}'
+redis.call('LPUSH', queue, task)
+return 1
+`;
+
+// 兜底：關閉所有「已到期」的窗口。setTimeout 漏掉或節點重啟時由低頻 interval 呼叫。
+// 加 LIMIT 限制單次處理量，避免大量窗口同時到期時單次 Lua 執行過久而阻塞 Redis；
+// 未處理完的會在下次 sweep 接續。
+// ARGV: [1]=queueKey [2]=limit
 // 回傳: 本次關閉的窗口數
 export const SWEEP_LUA = `
 local queue = ARGV[1]
+local limit = tonumber(ARGV[2])
 local t = redis.call('TIME')
 local nowMs = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
-local due = redis.call('ZRANGEBYSCORE', 'windows:active', 0, nowMs)
+local due = redis.call('ZRANGEBYSCORE', 'windows:active', 0, nowMs, 'LIMIT', 0, limit)
 local flushed = 0
 for _, bucket in ipairs(due) do
   local items = redis.call('LRANGE', bucket, 0, -1)
@@ -43,6 +68,7 @@ for _, bucket in ipairs(due) do
     local sep = string.find(rest, ':')
     local windowStart = string.sub(rest, 1, sep - 1)
     local accountId = string.sub(rest, sep + 1)
+    -- 注意：手動拼接 JSON 依賴 accountId 嚴格字元限制（見 CLOSE_ONE_LUA 說明）。
     local task = '{"taskId":"' .. bucket .. '","accountId":"' .. accountId ..
       '","windowStart":' .. windowStart ..
       ',"transactions":[' .. table.concat(items, ',') .. ']}'

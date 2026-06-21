@@ -63,19 +63,26 @@ async function processTask(task: Task): Promise<void> {
 
       if (upd.rowCount === 1) {
         const newVersion = version + 1;
-        // 為每筆交易寫各自的結果（該筆之後的餘額 + 整批提交後的版本）
-        await Promise.all(
-          steps.map((s) =>
-            writeResult({
-              taskId: s.transactionId,
-              accountId,
-              status: 'ok',
-              balance: s.balanceAfter,
-              version: newVersion,
-              az: config.azId,
-            }),
-          ),
-        );
+        // 為每筆交易寫各自的結果（該筆之後的餘額 + 整批提交後的版本）。
+        // 用 pipeline 將整批結果打包單次往返，降低 RTT 與 Redis 開銷。
+        const pipeline = resultRedis.pipeline();
+        for (const s of steps) {
+          const result: TaskResult = {
+            taskId: s.transactionId,
+            accountId,
+            status: 'ok',
+            balance: s.balanceAfter,
+            version: newVersion,
+            az: config.azId,
+          };
+          pipeline.set(
+            resultKey(s.transactionId),
+            JSON.stringify(result),
+            'EX',
+            RESULT_TTL_SECONDS,
+          );
+        }
+        await pipeline.exec();
         console.log(
           `[${config.serviceName}] batch account=${accountId} window=${task.windowStart} ` +
             `txns=${transactions.length} → 1 read + 1 write, ver ${version}→${newVersion} (az=${config.azId})`,
