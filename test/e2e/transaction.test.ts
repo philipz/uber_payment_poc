@@ -45,6 +45,29 @@ describe('Phase 1 端到端：單筆交易', () => {
     expect(b2.version).toBe(b1.version + 1);
   });
 
+  it('同窗口多筆並發歸集為單一批次（版本增幅 << 請求數）', async () => {
+    // probeA：先取一個乾淨基準（自成一批）
+    const probeA = (await (await postTxn(ACCOUNT, OperationType.Credit, 1)).json()) as TxnResponse;
+
+    // N 筆同時打向同一賬戶 → 落入同一 250ms 窗口 → 歸集為單一批次
+    const N = 10;
+    const responses = await Promise.all(
+      Array.from({ length: N }, () => postTxn(ACCOUNT, OperationType.Credit, 100)),
+    );
+    for (const r of responses) expect(r.status).toBe(200);
+
+    // probeB：批次提交後再取一筆（自成一批）
+    const probeB = (await (await postTxn(ACCOUNT, OperationType.Credit, 1)).json()) as TxnResponse;
+
+    // 餘額（與起始狀態無關）：probeA 後 + N*100 + probeB 的 1
+    expect(probeB.balance).toBe(probeA.balance + N * 100 + 1);
+
+    // 版本增幅應遠小於請求數：無批次時為 N+1，歸集後僅數次（證明 N 筆壓成少數次寫入）
+    const versionDelta = probeB.version - probeA.version;
+    expect(versionDelta).toBeGreaterThanOrEqual(2);
+    expect(versionDelta).toBeLessThan(N + 1);
+  });
+
   it('相同 transactionId 重送具基本冪等（不重複記帳）', async () => {
     const txId = randomUUID();
     const make = (): Promise<Response> =>

@@ -2,13 +2,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
-import { GLOBAL_QUEUE, resultKey } from '../../shared/keys';
-import {
-  OperationType,
-  type Task,
-  type TaskResult,
-  type TransactionInput,
-} from '../../shared/types';
+import { GLOBAL_QUEUE, WINDOW_MS, resultKey } from '../../shared/keys';
+import { ACCUMULATE_LUA, SWEEP_LUA } from '../../shared/lua';
+import { OperationType, type TaskResult, type TransactionInput } from '../../shared/types';
 
 const config = loadConfig();
 const redis = createRedis(config);
@@ -16,8 +12,19 @@ const redis = createRedis(config);
 const POLL_INTERVAL_MS = 10;
 const POLL_TIMEOUT_MS = 5000;
 const MAX_BODY_BYTES = 1024 * 1024; // 1MB，避免無限緩衝導致 OOM
+const SWEEPER_INTERVAL_MS = 100; // sweeper 兜底頻率
+const ACCOUNT_ID_RE = /^[A-Za-z0-9_-]+$/; // 限制字元，避免破壞 Lua 內組裝的 JSON
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+// 觸發一次「關閉所有到期窗口」的 sweep（由 per-window setTimeout 與 interval 共用）。
+async function runSweep(): Promise<void> {
+  try {
+    await redis.eval(SWEEP_LUA, 0, GLOBAL_QUEUE);
+  } catch (err) {
+    console.error(`[${config.serviceName}] sweep error:`, err);
+  }
+}
 
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -104,20 +111,33 @@ async function handleTransaction(
       const msg = err instanceof Error ? err.message : 'invalid json';
       return sendJson(res, msg === 'payload too large' ? 413 : 400, { error: msg });
     }
+    if (!ACCOUNT_ID_RE.test(accountId)) {
+      return sendJson(res, 400, { error: 'invalid account id' });
+    }
     const txn = parseTransaction(body);
     if (!txn) return sendJson(res, 400, { error: 'invalid transaction' });
 
-    // 以客戶端 transactionId 作為 taskId，提供基本冪等：
+    // 以客戶端 transactionId 作為結果鍵，提供基本冪等：
     // 若結果快取中已有同一交易的結果（results cache TTL 窗口內），直接回傳，避免重試造成重複記帳。
     // 注意：這是輕量防護，非完整去重——兩個並發同 id 仍可能雙進，TTL 過後亦失效；完整去重待專門處理。
-    const taskId = txn.transactionId;
-    const cached = await redis.get(resultKey(taskId));
+    const cached = await redis.get(resultKey(txn.transactionId));
     if (cached) return respondWithResult(res, JSON.parse(cached) as TaskResult);
 
-    const task: Task = { taskId, accountId, transaction: txn };
-    await redis.lpush(GLOBAL_QUEUE, JSON.stringify(task));
+    // 透過 Lua（以 Redis TIME 為權威時鐘）將交易歸集進當前 250ms 窗口
+    const [, isNew, msUntilClose] = (await redis.eval(
+      ACCUMULATE_LUA,
+      0,
+      accountId,
+      JSON.stringify(txn),
+      String(WINDOW_MS),
+    )) as [number, number, number];
 
-    const result = await pollResult(taskId);
+    // 新窗口：排一個 setTimeout 在截止時關閉（sweeper 為兜底）
+    if (isNew === 1) {
+      setTimeout(() => void runSweep(), Math.max(0, msUntilClose));
+    }
+
+    const result = await pollResult(txn.transactionId);
     if (!result) return sendJson(res, 504, { error: 'processing timeout' });
     return respondWithResult(res, result);
   } catch (err) {
@@ -138,4 +158,6 @@ function routes(req: IncomingMessage, res: ServerResponse): boolean {
 }
 
 startHealthServer(config.port, config.serviceName, routes);
+// sweeper 兜底：定期關閉到期但 setTimeout 漏掉的窗口
+setInterval(() => void runSweep(), SWEEPER_INTERVAL_MS);
 console.log(`[${config.serviceName}] up (az=${config.azId})`);
