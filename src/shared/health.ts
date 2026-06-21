@@ -8,17 +8,25 @@ export function startHealthServer(
   routes?: (req: http.IncomingMessage, res: http.ServerResponse) => boolean,
 ): http.Server {
   const server = http.createServer((req, res) => {
-    if (req.url === '/health') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', service: serviceName }));
-      return;
+    try {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', service: serviceName }));
+        return;
+      }
+      // 讓呼叫端先處理自訂路由；若已處理則結束
+      if (routes && routes(req, res)) {
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    } catch (err) {
+      console.error(`[${serviceName}] request handler error:`, err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'internal server error' }));
+      }
     }
-    // 讓呼叫端先處理自訂路由；若已處理則結束
-    if (routes && routes(req, res)) {
-      return;
-    }
-    res.writeHead(404, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: 'not found' }));
   });
 
   server.on('error', (err) => {
