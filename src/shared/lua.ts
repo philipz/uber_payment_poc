@@ -44,6 +44,11 @@ local task = '{"taskId":"' .. bucket .. '","accountId":"' .. accountId ..
   '","windowStart":' .. windowStart ..
   ',"transactions":[' .. table.concat(items, ',') .. ']}'
 redis.call('LPUSH', queue, task)
+-- 在 Lua 內原子發布 Queued 事件（不論由 setTimeout 或 sweeper 關閉都保證發出），channel 對應 EVENTS_CHANNEL
+local t = redis.call('TIME')
+local nowMs = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+redis.call('PUBLISH', 'events', '{"ts":' .. nowMs .. ',"state":"Queued","accountId":"' .. accountId ..
+  '","batchId":"' .. bucket .. '","windowStart":' .. windowStart .. ',"size":' .. #items .. '}')
 return #items
 `;
 
@@ -73,6 +78,9 @@ for _, bucket in ipairs(due) do
       '","windowStart":' .. windowStart ..
       ',"transactions":[' .. table.concat(items, ',') .. ']}'
     redis.call('LPUSH', queue, task)
+    -- 與 CLOSE_ONE_LUA 一致：發布 Queued 事件（sweeper 關閉的窗口也不漏狀態）
+    redis.call('PUBLISH', 'events', '{"ts":' .. nowMs .. ',"state":"Queued","accountId":"' .. accountId ..
+      '","batchId":"' .. bucket .. '","windowStart":' .. windowStart .. ',"size":' .. #items .. '}')
     flushed = flushed + 1
   end
 end

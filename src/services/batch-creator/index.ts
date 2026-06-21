@@ -21,7 +21,15 @@ const sseClients = new Set<ServerResponse>();
 const subRedis = createRedis(config);
 void subRedis.subscribe(EVENTS_CHANNEL);
 subRedis.on('message', (_channel, message) => {
-  for (const res of sseClients) res.write(`data: ${message}\n\n`);
+  for (const res of sseClients) {
+    try {
+      res.write(`data: ${message}\n\n`);
+    } catch (err) {
+      // 客戶端異常斷線（EPIPE / write-after-end）：移除，勿讓服務崩潰
+      console.error(`[${config.serviceName}] SSE write error:`, err);
+      sseClients.delete(res);
+    }
+  }
 });
 
 function handleSse(req: IncomingMessage, res: ServerResponse): void {
@@ -33,7 +41,14 @@ function handleSse(req: IncomingMessage, res: ServerResponse): void {
   });
   res.write(': connected\n\n');
   sseClients.add(res);
-  req.on('close', () => sseClients.delete(res));
+  const cleanup = (): void => {
+    sseClients.delete(res);
+  };
+  req.on('close', cleanup);
+  res.on('error', (err) => {
+    console.error(`[${config.serviceName}] SSE client error:`, err);
+    cleanup();
+  });
 }
 
 const POLL_INTERVAL_MS = 10;
@@ -46,19 +61,10 @@ const ACCOUNT_ID_RE = /^[A-Za-z0-9_-]+$/; // 限制字元，避免破壞 Lua 內
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // 精準關閉「單一」窗口（由該窗口的 setTimeout 觸發）。
-async function closeWindow(bucket: string, accountId: string, windowStart: number): Promise<void> {
+// Queued 事件由 CLOSE_ONE_LUA 在 Lua 內原子發布（與 sweeper 路徑一致，不漏狀態）。
+async function closeWindow(bucket: string): Promise<void> {
   try {
-    const count = (await redis.eval(CLOSE_ONE_LUA, 0, bucket, GLOBAL_QUEUE)) as number;
-    if (count > 0) {
-      void emitEvent(redis, {
-        ts: Date.now(),
-        state: TxnState.Queued,
-        accountId,
-        batchId: bucket,
-        windowStart,
-        size: count,
-      });
-    }
+    await redis.eval(CLOSE_ONE_LUA, 0, bucket, GLOBAL_QUEUE);
   } catch (err) {
     console.error(`[${config.serviceName}] close window error:`, err);
   }
@@ -202,7 +208,7 @@ async function handleTransaction(
     // 新窗口：排一個 setTimeout 在截止時「只關閉自己這個窗口」（sweeper 為兜底）
     if (isNew === 1) {
       const bucket = `batch:${windowStart}:${accountId}`;
-      setTimeout(() => void closeWindow(bucket, accountId, windowStart), Math.max(0, msUntilClose));
+      setTimeout(() => void closeWindow(bucket), Math.max(0, msUntilClose));
     }
 
     const result = await pollResult(txn.transactionId);

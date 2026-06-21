@@ -61,14 +61,16 @@ export const DASHBOARD_HTML = `<!doctype html>
   let count = 0;
   const fmt = (v) => (v === undefined || v === null ? '' : v);
   const time = (ts) => new Date(ts).toLocaleTimeString('zh-Hant', { hour12: false }) + '.' + String(ts % 1000).padStart(3, '0');
+  // 縱深防禦：所有動態值插入 DOM 前先做 HTML 轉義
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   function renderAccounts() {
     accountsEl.innerHTML = Object.values(accounts)
       .sort((a, b) => a.accountId.localeCompare(b.accountId))
       .map((a) =>
-        '<tr><td>' + a.accountId + '</td><td><span class="pill ' + a.state + '">' + a.state + '</span></td>' +
-        '<td class="num">' + fmt(a.balance) + '</td><td class="num">' + fmt(a.version) + '</td>' +
-        '<td class="az">' + fmt(a.az) + '</td></tr>'
+        '<tr><td>' + esc(a.accountId) + '</td><td><span class="pill ' + esc(a.state) + '">' + esc(a.state) + '</span></td>' +
+        '<td class="num">' + esc(fmt(a.balance)) + '</td><td class="num">' + esc(fmt(a.version)) + '</td>' +
+        '<td class="az">' + esc(fmt(a.az)) + '</td></tr>'
       ).join('');
   }
 
@@ -83,10 +85,10 @@ export const DASHBOARD_HTML = `<!doctype html>
 
     const row = document.createElement('tr');
     row.innerHTML =
-      '<td>' + time(e.ts) + '</td><td><span class="pill ' + e.state + '">' + e.state + '</span></td>' +
-      '<td>' + e.accountId + '</td><td class="num">' + fmt(e.version) + '</td>' +
-      '<td class="num">' + fmt(e.balance) + '</td><td class="az">' + fmt(e.az) + '</td>' +
-      '<td class="num">' + fmt(e.size) + '</td>';
+      '<td>' + esc(time(e.ts)) + '</td><td><span class="pill ' + esc(e.state) + '">' + esc(e.state) + '</span></td>' +
+      '<td>' + esc(e.accountId) + '</td><td class="num">' + esc(fmt(e.version)) + '</td>' +
+      '<td class="num">' + esc(fmt(e.balance)) + '</td><td class="az">' + esc(fmt(e.az)) + '</td>' +
+      '<td class="num">' + esc(fmt(e.size)) + '</td>';
     eventsEl.prepend(row);
     while (eventsEl.children.length > 200) eventsEl.removeChild(eventsEl.lastChild);
   }
