@@ -1,0 +1,20 @@
+src/services/post-process/index.ts
+  s_0fe26885633c60::t_7c59ee15fa1280 25,28
+  s_0fe26885633c60::t_1c5a10091b25df 39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "98ec6969d9d4db1a75b5f8d56e23bde058361350",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
