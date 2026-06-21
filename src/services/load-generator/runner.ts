@@ -26,7 +26,8 @@ interface Metrics {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 async function readMetrics(baseUrl: string): Promise<Metrics> {
-  const res = await fetch(`${baseUrl}/metrics`);
+  const res = await fetch(`${baseUrl}/metrics`, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`failed to fetch metrics: ${res.status} ${res.statusText}`);
   return (await res.json()) as Metrics;
 }
 
@@ -53,6 +54,7 @@ export async function runScenario(opts: RunOptions, mode: Mode): Promise<Scenari
             operationType: OperationType.Credit,
             amount: 1,
           }),
+          signal: AbortSignal.timeout(5000),
         });
         await res.text();
         if (res.ok) {

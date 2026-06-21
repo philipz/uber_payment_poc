@@ -185,7 +185,9 @@ async function handleTransaction(
     const txn = parseTransaction(body);
     if (!txn) return sendJson(res, 400, { error: 'invalid transaction' });
 
-    void redis.incr(requestsKey(mode));
+    redis.incr(requestsKey(mode)).catch((err) => {
+      console.error(`[${config.serviceName}] requests metric incr failed:`, err);
+    });
     void emitEvent(redis, {
       ts: Date.now(),
       state: TxnState.Ingested,
@@ -280,8 +282,15 @@ function routes(req: IncomingMessage, res: ServerResponse): boolean {
   }
   const match = TXN_ROUTE.exec(pathname);
   if (req.method === 'POST' && match) {
+    let accountId: string;
+    try {
+      accountId = decodeURIComponent(match[1]);
+    } catch {
+      sendJson(res, 400, { error: 'invalid account id encoding' });
+      return true;
+    }
     const mode: Mode = url.searchParams.get('mode') === 'naive' ? 'naive' : 'batched';
-    void handleTransaction(decodeURIComponent(match[1]), mode, req, res);
+    void handleTransaction(accountId, mode, req, res);
     return true;
   }
   return false;
