@@ -1,0 +1,25 @@
+src/services/batch-creator/index.ts
+  s_0fe26885633c60::t_c947d641b51298 188-190
+  s_0fe26885633c60::t_5aeea412081e2e 285-291,293
+src/services/load-generator/runner.ts
+  s_0fe26885633c60::t_e63e08b037ecb7 57
+  s_0fe26885633c60::t_5ca22a402b6ce8 29-30
+src/services/batch-process/index.ts
+  s_0fe26885633c60::t_651686eab93eae 110-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "67047d2dbfe0ff7fa3f08994e3c294c50f9ff13c",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
