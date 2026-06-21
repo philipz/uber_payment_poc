@@ -51,5 +51,18 @@ npm run test:e2e   # 端到端測試（需先 docker compose up）
 
 ## 實作進度
 
-依 issue #1–#7（Phase 0–6）沿依賴鏈推進。目前完成 **Phase 0：專案骨架與 Compose 骨幹**。
+依 issue #1–#7（Phase 0–6）沿依賴鏈推進。
+
+- ✅ **Phase 0**：專案骨架與 Compose 骨幹
+- ✅ **Phase 1**：最薄端到端切片（`POST /accounts/:id/transactions` → Redis 佇列 → worker 讀 Postgres + 樂觀鎖寫 → results cache → 回應）
+
+### 試打一筆交易（需先 `docker compose up`）
+
+```bash
+curl -XPOST localhost:3000/accounts/hot-account-1/transactions \
+  -H 'content-type: application/json' \
+  -d '{"transactionId":"t1","operationType":1,"amount":700}'
+# → {"accountId":"hot-account-1","balance":700,"version":1}
+# operationType: 1=Credit 2=Debit 3=Authorize 4=Release
+```
 

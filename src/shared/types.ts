@@ -33,6 +33,33 @@ export interface AccountState {
   version: number;
 }
 
+// 客戶端 POST body（單筆交易輸入）
+export interface TransactionInput {
+  transactionId: string;
+  operationType: OperationType;
+  amount: number; // 最小貨幣單位（分），須為正整數
+  referenceId?: string;
+  businessTime?: number;
+}
+
+// 推入全域佇列的任務（Phase 1：一筆交易 = 一個任務）
+export interface Task {
+  taskId: string;
+  accountId: string;
+  transaction: TransactionInput;
+}
+
+// worker 寫入結果快取、creator 輪詢回傳
+export interface TaskResult {
+  taskId: string;
+  accountId: string;
+  status: 'ok' | 'error';
+  balance?: number;
+  version?: number;
+  error?: 'account not found' | 'conflict' | 'internal';
+  az?: string;
+}
+
 // 交易/批次的狀態機（見 CONTEXT.md 與 spec）
 export enum TxnState {
   Ingested = 'Ingested',
