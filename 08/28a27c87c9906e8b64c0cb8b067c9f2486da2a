@@ -1,0 +1,19 @@
+src/services/batch-process/index.ts
+  s_0fe26885633c60::t_e5ec8c9667a86f 308-320,328-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "0828a27c87c9906e8b64c0cb8b067c9f2486da2a",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
