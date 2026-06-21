@@ -93,6 +93,8 @@ async function processTask(task: Task): Promise<void> {
       let committedVersion = 0;
       let appliedTxns: TransactionInput[] = [];
       let appliedSteps: ReplayStep[] = [];
+      // 已套用交易的歷史結果（重試回傳用），保證嚴格冪等回應
+      let priorResults = new Map<string, { version: number; balance: number }>();
       try {
         await client.query('BEGIN');
         const read = await client.query<{ balance: string; version: number }>(
@@ -107,11 +109,21 @@ async function processTask(task: Task): Promise<void> {
           const version = read.rows[0].version;
 
           // 交易級冪等：排除「已套用」與「批次內重複」的 txid，只重放真正的新交易
-          const existing = await client.query<{ transaction_id: string }>(
-            'SELECT transaction_id FROM processed_transactions WHERE transaction_id = ANY($1)',
+          const existing = await client.query<{
+            transaction_id: string;
+            applied_version: number;
+            balance_after: string;
+          }>(
+            'SELECT transaction_id, applied_version, balance_after FROM processed_transactions WHERE transaction_id = ANY($1)',
             [uniqueTxids],
           );
-          const processedSet = new Set(existing.rows.map((r) => r.transaction_id));
+          priorResults = new Map(
+            existing.rows.map((r) => [
+              r.transaction_id,
+              { version: r.applied_version, balance: Number(r.balance_after) },
+            ]),
+          );
+          const processedSet = new Set(priorResults.keys());
           appliedTxns = dedupeTransactions(transactions, processedSet);
 
           if (appliedTxns.length === 0) {
@@ -132,15 +144,21 @@ async function processTask(task: Task): Promise<void> {
               await client.query('ROLLBACK');
               outcome = 'conflict';
             } else {
-              // 同事務記錄已套用 txid，保證「餘額變更」與「冪等標記」原子一致
+              // 同事務記錄已套用 txid 與當下餘額，保證「餘額變更」與「冪等標記」原子一致
+              const stepAfter = new Map(appliedSteps.map((s) => [s.transactionId, s.balanceAfter]));
               const values: unknown[] = [];
               const placeholders = appliedTxns.map((t, i) => {
-                const b = i * 3;
-                values.push(t.transactionId, accountId, version + 1);
-                return `($${b + 1}, $${b + 2}, $${b + 3})`;
+                const b = i * 4;
+                values.push(
+                  t.transactionId,
+                  accountId,
+                  version + 1,
+                  stepAfter.get(t.transactionId),
+                );
+                return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4})`;
               });
               await client.query(
-                `INSERT INTO processed_transactions (transaction_id, account_id, applied_version) ` +
+                `INSERT INTO processed_transactions (transaction_id, account_id, applied_version, balance_after) ` +
                   `VALUES ${placeholders.join(', ')} ON CONFLICT (transaction_id) DO NOTHING`,
                 values,
               );
@@ -174,16 +192,18 @@ async function processTask(task: Task): Promise<void> {
         });
       }
 
-      // 為所有原始 unique txid 寫結果：新交易用其重放後餘額，重複交易用最終提交餘額（冪等回應）
+      // 為所有原始 unique txid 寫結果（嚴格冪等）：
+      //   已套用過的重複交易 → 回當時的歷史餘額/版本；本次新交易 → 回其重放後餘額 + 本次提交版本。
       const stepBalance = new Map(appliedSteps.map((s) => [s.transactionId, s.balanceAfter]));
       const pipeline = resultRedis.pipeline();
       for (const txid of uniqueTxids) {
+        const prior = priorResults.get(txid);
         const result: TaskResult = {
           taskId: txid,
           accountId,
           status: 'ok',
-          balance: stepBalance.get(txid) ?? newBalance,
-          version: committedVersion,
+          balance: prior ? prior.balance : (stepBalance.get(txid) ?? newBalance),
+          version: prior ? prior.version : committedVersion,
           az: config.azId,
         };
         pipeline.set(resultKey(txid), JSON.stringify(result), 'EX', RESULT_TTL_SECONDS);

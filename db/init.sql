@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS processed_transactions (
   transaction_id  TEXT        PRIMARY KEY,
   account_id      TEXT        NOT NULL,
   applied_version INTEGER     NOT NULL,
+  balance_after   BIGINT      NOT NULL,   -- 該交易套用後的餘額，供重試回傳嚴格一致的歷史結果
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
