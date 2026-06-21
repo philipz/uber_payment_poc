@@ -17,6 +17,22 @@ export function applyOperation(balance: number, op: OperationType, amount: numbe
   }
 }
 
+// 純函式：對批次內交易去重 —— 排除「已套用（alreadyProcessed）」與「批次內重複」的 transactionId，
+// 保留首次出現順序。用於交易級冪等，避免同一筆交易被重放兩次。
+export function dedupeTransactions(
+  transactions: TransactionInput[],
+  alreadyProcessed: Set<string>,
+): TransactionInput[] {
+  const seen = new Set<string>();
+  const result: TransactionInput[] = [];
+  for (const t of transactions) {
+    if (alreadyProcessed.has(t.transactionId) || seen.has(t.transactionId)) continue;
+    seen.add(t.transactionId);
+    result.push(t);
+  }
+  return result;
+}
+
 export interface ReplayStep {
   transactionId: string;
   balanceAfter: number;

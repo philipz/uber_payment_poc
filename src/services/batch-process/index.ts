@@ -4,7 +4,7 @@ import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
 import { AUDIT_QUEUE, GLOBAL_QUEUE, dbWritesKey, resultKey } from '../../shared/keys';
-import { replayBatch } from '../../shared/operations';
+import { dedupeTransactions, replayBatch, type ReplayStep } from '../../shared/operations';
 import { packMicroUAC } from '../../shared/microuac';
 import { emitEvent } from '../../shared/events';
 import {
@@ -76,6 +76,9 @@ async function processTask(task: Task): Promise<void> {
     az: config.azId,
   });
 
+  const mode = task.mode ?? 'batched';
+  const uniqueTxids = [...new Set(transactions.map((t) => t.transactionId))];
+
   try {
     for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
       if (attempt > 0) {
@@ -83,86 +86,159 @@ async function processTask(task: Task): Promise<void> {
         await new Promise((r) => setTimeout(r, 5 + Math.random() * 20));
       }
 
-      // 整批共用單次讀取
-      const read = await pool.query<{ balance: string; version: number }>(
-        'SELECT balance, version FROM accounts WHERE id = $1',
-        [accountId],
-      );
-      if (read.rowCount === 0) {
+      // 讀取 → 去重 → OCC 寫入 → 記錄已套用 txid，全部在「同一個 DB 交易」內原子完成。
+      const client = await pool.connect();
+      let outcome: 'committed' | 'conflict' | 'no-account' = 'conflict';
+      let newBalance = 0;
+      let committedVersion = 0;
+      let appliedTxns: TransactionInput[] = [];
+      let appliedSteps: ReplayStep[] = [];
+      // 已套用交易的歷史結果（重試回傳用），保證嚴格冪等回應
+      let priorResults = new Map<string, { version: number; balance: number }>();
+      try {
+        await client.query('BEGIN');
+        const read = await client.query<{ balance: string; version: number }>(
+          'SELECT balance, version FROM accounts WHERE id = $1',
+          [accountId],
+        );
+        if (read.rowCount === 0) {
+          await client.query('ROLLBACK');
+          outcome = 'no-account';
+        } else {
+          const balance = Number(read.rows[0].balance); // BIGINT 以字串回傳，轉數值
+          const version = read.rows[0].version;
+
+          // 交易級冪等：排除「已套用」與「批次內重複」的 txid，只重放真正的新交易
+          const existing = await client.query<{
+            transaction_id: string;
+            applied_version: number;
+            balance_after: string;
+          }>(
+            'SELECT transaction_id, applied_version, balance_after FROM processed_transactions WHERE transaction_id = ANY($1)',
+            [uniqueTxids],
+          );
+          priorResults = new Map(
+            existing.rows.map((r) => [
+              r.transaction_id,
+              { version: r.applied_version, balance: Number(r.balance_after) },
+            ]),
+          );
+          const processedSet = new Set(priorResults.keys());
+          appliedTxns = dedupeTransactions(transactions, processedSet);
+
+          if (appliedTxns.length === 0) {
+            // 全部為重複：無餘額變更，提交 no-op，回應目前狀態（冪等）
+            await client.query('COMMIT');
+            newBalance = balance;
+            committedVersion = version;
+            outcome = 'committed';
+          } else {
+            const replay = replayBatch(balance, appliedTxns);
+            newBalance = replay.newBalance;
+            appliedSteps = replay.steps;
+            const upd = await client.query(
+              'UPDATE accounts SET balance = $1, version = version + 1 WHERE id = $2 AND version = $3',
+              [newBalance, accountId, version],
+            );
+            if (upd.rowCount !== 1) {
+              await client.query('ROLLBACK');
+              outcome = 'conflict';
+            } else {
+              // 同事務記錄已套用 txid 與當下餘額，保證「餘額變更」與「冪等標記」原子一致
+              const stepAfter = new Map(appliedSteps.map((s) => [s.transactionId, s.balanceAfter]));
+              const values: unknown[] = [];
+              const placeholders = appliedTxns.map((t, i) => {
+                const b = i * 4;
+                values.push(
+                  t.transactionId,
+                  accountId,
+                  version + 1,
+                  stepAfter.get(t.transactionId),
+                );
+                return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4})`;
+              });
+              await client.query(
+                `INSERT INTO processed_transactions (transaction_id, account_id, applied_version, balance_after) ` +
+                  `VALUES ${placeholders.join(', ')} ON CONFLICT (transaction_id) DO NOTHING`,
+                values,
+              );
+              await client.query('COMMIT');
+              committedVersion = version + 1;
+              outcome = 'committed';
+            }
+          }
+        }
+      } catch (txErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw txErr;
+      } finally {
+        client.release();
+      }
+
+      if (outcome === 'no-account') {
         await writeBatchError(task, 'account not found');
         return;
       }
+      if (outcome === 'conflict') {
+        console.warn(`[${config.serviceName}] OCC 衝突 account=${accountId}，重試 ${attempt + 1}`);
+        continue;
+      }
 
-      const balance = Number(read.rows[0].balance); // BIGINT 以字串回傳，轉數值
-      const version = read.rows[0].version;
-      // 記憶體中依序重放整批，計算最終餘額與每筆交易後的餘額
-      const { newBalance, steps } = replayBatch(balance, transactions);
-
-      // 整批共用單次樂觀鎖寫入：僅當版本未被他人推進時才更新
-      const upd = await pool.query(
-        'UPDATE accounts SET balance = $1, version = version + 1 WHERE id = $2 AND version = $3',
-        [newBalance, accountId, version],
-      );
-
-      if (upd.rowCount === 1) {
-        const newVersion = version + 1;
-        // 對照組計量：每次成功提交（= 一次 DB 寫入）計數，依模式歸戶
-        resultRedis.incr(dbWritesKey(task.mode ?? 'batched')).catch((err) => {
+      // outcome === 'committed'（可能為 no-op）
+      const didWrite = appliedTxns.length > 0;
+      if (didWrite) {
+        resultRedis.incr(dbWritesKey(mode)).catch((err) => {
           console.error(`[${config.serviceName}] dbWrites metric incr failed:`, err);
         });
-        // 為每筆交易寫各自的結果（該筆之後的餘額 + 整批提交後的版本）。
-        // 用 pipeline 將整批結果打包單次往返，降低 RTT 與 Redis 開銷。
-        const pipeline = resultRedis.pipeline();
-        for (const s of steps) {
-          const result: TaskResult = {
-            taskId: s.transactionId,
-            accountId,
-            status: 'ok',
-            balance: s.balanceAfter,
-            version: newVersion,
-            az: config.azId,
-          };
-          pipeline.set(
-            resultKey(s.transactionId),
-            JSON.stringify(result),
-            'EX',
-            RESULT_TTL_SECONDS,
-          );
-        }
-        await pipeline.exec();
+      }
 
-        // 結果已寫入（creator 可回應），再把審計推給後處理非同步落庫（不佔交易關鍵路徑）。
-        // 用獨立 try-catch：審計入列失敗屬非關鍵路徑，絕不可覆寫已成功提交的交易結果（避免 dual-write 不一致）。
+      // 為所有原始 unique txid 寫結果（嚴格冪等）：
+      //   已套用過的重複交易 → 回當時的歷史餘額/版本；本次新交易 → 回其重放後餘額 + 本次提交版本。
+      const stepBalance = new Map(appliedSteps.map((s) => [s.transactionId, s.balanceAfter]));
+      const pipeline = resultRedis.pipeline();
+      for (const txid of uniqueTxids) {
+        const prior = priorResults.get(txid);
+        const result: TaskResult = {
+          taskId: txid,
+          accountId,
+          status: 'ok',
+          balance: prior ? prior.balance : (stepBalance.get(txid) ?? newBalance),
+          version: prior ? prior.version : committedVersion,
+          az: config.azId,
+        };
+        pipeline.set(resultKey(txid), JSON.stringify(result), 'EX', RESULT_TTL_SECONDS);
+      }
+      await pipeline.exec();
+
+      // 審計只記真正套用的新交易（不佔交易關鍵路徑，獨立 try-catch 不影響已提交結果）
+      if (didWrite) {
         try {
-          const microUacs = transactions.map((t, i) => microUacHexFor(t, i, newVersion));
+          const microUacs = appliedTxns.map((t, i) => microUacHexFor(t, i, committedVersion));
           const auditJob: AuditJob = { accountId, batchId: task.taskId, microUacs };
           await resultRedis.lpush(AUDIT_QUEUE, JSON.stringify(auditJob));
         } catch (auditErr) {
           console.error(`[${config.serviceName}] 寫入審計佇列失敗（non-blocking）:`, auditErr);
         }
-
-        void emitEvent(resultRedis, {
-          ts: Date.now(),
-          state: TxnState.Committed,
-          accountId,
-          batchId: task.taskId,
-          windowStart: task.windowStart,
-          size: transactions.length,
-          version: newVersion,
-          balance: newBalance,
-          az: config.azId,
-        });
-
-        console.log(
-          `[${config.serviceName}] batch account=${accountId} window=${task.windowStart} ` +
-            `txns=${transactions.length} → 1 read + 1 write, ver ${version}→${newVersion} (az=${config.azId})`,
-        );
-        return;
       }
-      // rowCount === 0：版本衝突，重讀重試
-      console.warn(
-        `[${config.serviceName}] OCC 衝突 account=${accountId} ver=${version}，重試 ${attempt + 1}`,
+
+      void emitEvent(resultRedis, {
+        ts: Date.now(),
+        state: TxnState.Committed,
+        accountId,
+        batchId: task.taskId,
+        windowStart: task.windowStart,
+        size: appliedTxns.length,
+        version: committedVersion,
+        balance: newBalance,
+        az: config.azId,
+      });
+
+      console.log(
+        `[${config.serviceName}] batch account=${accountId} window=${task.windowStart} ` +
+          `txns=${transactions.length} applied=${appliedTxns.length} → ${didWrite ? '1 read + 1 write' : 'no-op(dup)'}, ` +
+          `ver ${committedVersion} (az=${config.azId})`,
       );
+      return;
     }
 
     await writeBatchError(task, 'conflict');
