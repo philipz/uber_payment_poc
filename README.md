@@ -33,7 +33,7 @@
 
 - ✅ **#15 交易級冪等**：`processed_transactions` 表 + 同交易去重，杜絕同一 `transactionId` 並發/重放造成的重複記帳；重試回傳歷史結果（嚴格冪等）。
 - ✅ **#16 審計原子化**：MicroUAC 與餘額更新置於**同一 DB 交易**，杜絕「有餘額變更但無審計」的懸空狀態；post-process 改為下游傳播（Kafka stub + Finalized 事件）。
-- ⏳ **#17 可靠佇列**（BLMOVE + 重認領）：規劃中。
+- ✅ **#17 可靠佇列**：任務佇列改 `BLMOVE` 到 per-worker processing list + `LREM` 確認；心跳 + 重認領讓崩潰 worker 的在途任務被其他節點接管（配合 #15 冪等 → 等效 exactly-once）。finalize 通知佇列因 #16 已非關鍵故維持簡單。
 
 **範圍與限制（見 ADR 0001）**：本 PoC 是「架構可行性 demo」，**不**驗證真實 Multi-AZ 跨區容錯、分散式時鐘漂移、嚴格吞吐/延遲 benchmark；壓縮比為示意。降級直連、影子雙寫校驗、流量放大壓測等亦在範圍外。
 

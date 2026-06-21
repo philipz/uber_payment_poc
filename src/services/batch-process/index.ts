@@ -3,8 +3,17 @@ import { Pool } from 'pg';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
-import { FINALIZE_QUEUE, GLOBAL_QUEUE, dbWritesKey, resultKey } from '../../shared/keys';
+import {
+  FINALIZE_QUEUE,
+  GLOBAL_QUEUE,
+  WORKERS_SET,
+  aliveKey,
+  dbWritesKey,
+  processingKey,
+  resultKey,
+} from '../../shared/keys';
 import { dedupeTransactions, replayBatch, type ReplayStep } from '../../shared/operations';
+import { RECLAIM_LUA } from '../../shared/lua';
 import { packMicroUAC } from '../../shared/microuac';
 import { emitEvent } from '../../shared/events';
 import {
@@ -26,6 +35,13 @@ const pool = new Pool({ connectionString: config.databaseUrl });
 const RESULT_TTL_SECONDS = 30;
 // 多 worker 同時處理同一賬戶的不同批次時會發生 OCC 衝突，需足夠重試次數確保最終都能提交
 const MAX_OCC_RETRIES = 20;
+
+// 可靠佇列參數
+const workerId = config.azId; // 每個 AZ 容器一個 worker，azId 唯一
+const PROCESSING = processingKey(workerId);
+const WORKER_TTL_SECONDS = 10; // 心跳鍵 TTL，逾時即視為死亡
+const HEARTBEAT_MS = 3000;
+const RECLAIM_MS = 3000;
 
 // 由一筆交易產生 48-byte MicroUAC（Buffer，供 bytea 落庫）。
 // transactionId 為字串，取其 MD5 前 8 bytes 收斂為 Int64（PoC 適配）；ReferenceHash 為 referenceId 的 MD5。
@@ -265,14 +281,58 @@ async function processTask(task: Task): Promise<void> {
   }
 }
 
+// 心跳：刷新存活鍵，逾時未刷新即被其他 worker 視為死亡並接管其 processing list
+async function heartbeat(): Promise<void> {
+  await resultRedis.set(aliveKey(workerId), '1', 'EX', WORKER_TTL_SECONDS);
+}
+
+// 重認領：把已死亡 worker 的 processing list 任務搬回全域佇列（自身正在處理的不動）
+async function reclaimDeadWorkers(): Promise<void> {
+  const ids = await resultRedis.smembers(WORKERS_SET);
+  for (const id of ids) {
+    if (id === workerId) continue;
+    if ((await resultRedis.exists(aliveKey(id))) === 1) continue; // 仍存活，略過
+    const moved = Number(await resultRedis.eval(RECLAIM_LUA, 0, processingKey(id), GLOBAL_QUEUE));
+    if (moved > 0) {
+      console.warn(`[${config.serviceName}] 重認領死亡 worker ${id} 的 ${moved} 個任務`);
+    }
+  }
+}
+
 async function workLoop(): Promise<void> {
-  console.log(`[${config.serviceName}] worker up (az=${config.azId})，開始領取任務`);
+  // 登記自己；重認領自己上次崩潰殘留的任務；啟動心跳與重認領迴圈
+  await resultRedis.sadd(WORKERS_SET, workerId);
+  await heartbeat();
+  await resultRedis.eval(RECLAIM_LUA, 0, PROCESSING, GLOBAL_QUEUE); // 復原自身上次的在途任務
+
+  // 用遞迴 setTimeout（而非 setInterval）排程，確保前次執行完成才排下一次，避免非同步重疊
+  const runHeartbeat = (): void => {
+    heartbeat()
+      .catch((e) => console.error('heartbeat error:', e))
+      .finally(() => setTimeout(runHeartbeat, HEARTBEAT_MS));
+  };
+  const runReclaim = (): void => {
+    reclaimDeadWorkers()
+      .catch((e) => console.error('reclaim error:', e))
+      .finally(() => setTimeout(runReclaim, RECLAIM_MS));
+  };
+  runHeartbeat();
+  runReclaim();
+
+  console.log(`[${config.serviceName}] worker up (az=${workerId})，開始領取任務`);
   for (;;) {
     try {
-      const popped = await queueRedis.brpop(GLOBAL_QUEUE, 5);
-      if (!popped) continue; // 逾時，繼續等待
-      const task = JSON.parse(popped[1]) as Task;
-      await processTask(task);
+      // BLMOVE：原子地把任務移入自己的 processing list（崩潰時任務不丟，留待重認領）
+      const taskJson = await queueRedis.blmove(GLOBAL_QUEUE, PROCESSING, 'RIGHT', 'LEFT', 5);
+      if (!taskJson) continue; // 逾時，繼續等待
+      try {
+        const task = JSON.parse(taskJson) as Task;
+        await processTask(task);
+      } finally {
+        // 任務一旦成功取出，無論處理成功或例外都從 processing list 移除（避免壞任務永久殘留）；
+        // 唯有「程序崩潰」不會走到此處 → 任務留存待其他 worker 重認領。
+        await queueRedis.lrem(PROCESSING, 1, taskJson);
+      }
     } catch (err) {
       console.error(`[${config.serviceName}] work loop error:`, err);
     }

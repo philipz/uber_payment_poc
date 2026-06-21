@@ -17,5 +17,11 @@ export const EVENTS_CHANNEL = 'events';
 export const requestsKey = (mode: string): string => `metrics:requests:${mode}`;
 export const dbWritesKey = (mode: string): string => `metrics:dbwrites:${mode}`;
 
+// 可靠佇列（at-least-once）：worker 以 BLMOVE 把任務移入自己的 processing list，成功後 LREM 確認；
+// 心跳逾時即視為死亡，由其他 worker 把其 processing list 的任務搬回全域佇列重認領。
+export const WORKERS_SET = 'workers'; // 所有 worker id 集合
+export const processingKey = (workerId: string): string => `processing:${workerId}`;
+export const aliveKey = (workerId: string): string => `worker:alive:${workerId}`;
+
 // 結果快取：worker 寫入、creator 輪詢
 export const resultKey = (taskId: string): string => `result:${taskId}`;

@@ -52,6 +52,20 @@ redis.call('PUBLISH', 'events', '{"ts":' .. nowMs .. ',"state":"Queued","account
 return #items
 `;
 
+// 可靠佇列重認領：把一個（死亡 worker 的）processing list 內所有任務原子搬回全域佇列。
+// 多個 reclaimer 併發呼叫同一 key 也安全：Lua 原子執行，第一個搬完，其餘得 0。
+// ARGV: [1]=processingKey [2]=globalQueue
+// 回傳: 搬回的任務數
+export const RECLAIM_LUA = `
+local moved = 0
+while true do
+  local item = redis.call('LMOVE', ARGV[1], ARGV[2], 'RIGHT', 'LEFT')
+  if not item then break end
+  moved = moved + 1
+end
+return moved
+`;
+
 // 兜底：關閉所有「已到期」的窗口。setTimeout 漏掉或節點重啟時由低頻 interval 呼叫。
 // 加 LIMIT 限制單次處理量，避免大量窗口同時到期時單次 Lua 執行過久而阻塞 Redis；
 // 未處理完的會在下次 sweep 接續。
