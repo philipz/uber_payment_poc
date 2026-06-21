@@ -3,8 +3,8 @@ FROM node:22-alpine
 WORKDIR /app
 
 # 先裝相依，利用 layer cache
-COPY package.json package-lock.json* ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # 編譯 TypeScript
 COPY tsconfig.json ./

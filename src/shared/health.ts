@@ -21,6 +21,10 @@ export function startHealthServer(
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
+  server.on('error', (err) => {
+    console.error(`[${serviceName}] health server error:`, err);
+  });
+
   server.listen(port, () => {
     console.log(`[${serviceName}] health server listening on :${port}`);
   });

@@ -26,4 +26,14 @@ describe('loadConfig', () => {
     expect(cfg.port).toBe(3001);
     expect(cfg.azId).toBe('az-2');
   });
+
+  it('PORT 為非數字時安全回退至 3000', () => {
+    process.env.PORT = 'abc';
+    expect(loadConfig().port).toBe(3000);
+  });
+
+  it('PORT 為空字串時安全回退至 3000', () => {
+    process.env.PORT = '';
+    expect(loadConfig().port).toBe(3000);
+  });
 });

@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS audit (
   id         BIGSERIAL   PRIMARY KEY,
   account_id TEXT        NOT NULL,
   micro_uac  BYTEA       NOT NULL,
-  status     TEXT        NOT NULL,           -- Tentative / Committed
+  status     TEXT        NOT NULL CHECK (status IN ('Tentative', 'Committed')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
