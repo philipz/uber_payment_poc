@@ -42,11 +42,12 @@ export interface TransactionInput {
   businessTime?: number;
 }
 
-// 推入全域佇列的任務（Phase 1：一筆交易 = 一個任務）
+// 推入全域佇列的任務（Phase 2 起：一個 batch = 同帳戶同窗口的多筆交易）
 export interface Task {
   taskId: string;
   accountId: string;
-  transaction: TransactionInput;
+  windowStart: number;
+  transactions: TransactionInput[];
 }
 
 // worker 寫入結果快取、creator 輪詢回傳

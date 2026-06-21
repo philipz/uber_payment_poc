@@ -55,6 +55,7 @@ npm run test:e2e   # 端到端測試（需先 docker compose up）
 
 - ✅ **Phase 0**：專案骨架與 Compose 骨幹
 - ✅ **Phase 1**：最薄端到端切片（`POST /accounts/:id/transactions` → Redis 佇列 → worker 讀 Postgres + 樂觀鎖寫 → results cache → 回應）
+- ✅ **Phase 2**：250ms 時間窗口聚合（Lua + Redis TIME 權威時鐘歸集、每窗口 setTimeout 關閉 + sweeper 兜底、N 筆壓成單次讀寫）
 
 ### 試打一筆交易（需先 `docker compose up`）
 

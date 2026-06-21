@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyOperation } from '../../src/shared/operations';
-import { OperationType } from '../../src/shared/types';
+import { applyOperation, replayBatch } from '../../src/shared/operations';
+import { OperationType, type TransactionInput } from '../../src/shared/types';
 
 describe('applyOperation', () => {
   it('Credit 增加餘額', () => {
@@ -21,5 +21,26 @@ describe('applyOperation', () => {
 
   it('未知操作丟出例外', () => {
     expect(() => applyOperation(100, 0x99 as OperationType, 1)).toThrow();
+  });
+});
+
+describe('replayBatch', () => {
+  it('依序重放並回傳每筆後餘額與最終餘額', () => {
+    const txns: TransactionInput[] = [
+      { transactionId: 'a', operationType: OperationType.Credit, amount: 100 },
+      { transactionId: 'b', operationType: OperationType.Debit, amount: 30 },
+      { transactionId: 'c', operationType: OperationType.Credit, amount: 5 },
+    ];
+    const { newBalance, steps } = replayBatch(1000, txns);
+    expect(newBalance).toBe(1075);
+    expect(steps).toEqual([
+      { transactionId: 'a', balanceAfter: 1100 },
+      { transactionId: 'b', balanceAfter: 1070 },
+      { transactionId: 'c', balanceAfter: 1075 },
+    ]);
+  });
+
+  it('空批次回原餘額', () => {
+    expect(replayBatch(500, [])).toEqual({ newBalance: 500, steps: [] });
   });
 });
