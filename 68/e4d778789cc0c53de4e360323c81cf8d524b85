@@ -1,0 +1,46 @@
+src/services/batch-creator/index.ts
+  s_0fe26885633c60::t_05758011010504 49,51-61
+  s_0fe26885633c60::t_33e98a957edb1d 8-13
+  s_0fe26885633c60::t_863fa6892aa9e0 194-201,205
+  s_0fe26885633c60::t_044fdcdf9a9bfb 5,7,14,19-37
+  s_0fe26885633c60::t_66098952515fb0 172-178
+  s_0fe26885633c60::t_8f8388a08e6b66 220-228
+README.md
+  s_0fe26885633c60::t_9e88d5372a825b 61
+src/services/batch-creator/dashboard.ts
+  s_0fe26885633c60::t_86679254980ffd 1-101
+test/e2e/dashboard.test.ts
+  s_0fe26885633c60::t_c8c55dddedaaf1 1-97
+src/shared/lua.ts
+  s_0fe26885633c60::t_e990845abff43d 47
+src/services/post-process/index.ts
+  s_0fe26885633c60::t_12052eb490089d 6-7,14
+  s_0fe26885633c60::t_cefa32ecf64da5 35-42
+src/shared/types.ts
+  s_0fe26885633c60::t_aae8ec3b24a724 56,60-71
+src/services/batch-process/index.ts
+  s_0fe26885633c60::t_e2a726c54f01c9 69-78
+  s_0fe26885633c60::t_33e98a957edb1d 10-16
+  s_0fe26885633c60::t_56e14e9bd86c23 134,140-150
+  s_0fe26885633c60::t_11d3fc339a1ec8 9
+src/shared/events.ts
+  s_0fe26885633c60::t_34a41c35a256f3 1-25
+src/shared/keys.ts
+  s_0fe26885633c60::t_23b8e5d8d7f2f5 12-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "68e4d778789cc0c53de4e360323c81cf8d524b85",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
