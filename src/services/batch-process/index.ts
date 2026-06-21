@@ -6,7 +6,14 @@ import { createRedis } from '../../shared/redis';
 import { AUDIT_QUEUE, GLOBAL_QUEUE, resultKey } from '../../shared/keys';
 import { replayBatch } from '../../shared/operations';
 import { packMicroUAC } from '../../shared/microuac';
-import type { AuditJob, Task, TaskResult, TransactionInput } from '../../shared/types';
+import { emitEvent } from '../../shared/events';
+import {
+  TxnState,
+  type AuditJob,
+  type Task,
+  type TaskResult,
+  type TransactionInput,
+} from '../../shared/types';
 
 const config = loadConfig();
 // 健康檢查伺服器（worker 非 HTTP 對外，但供 compose healthcheck 用）
@@ -58,6 +65,16 @@ async function writeBatchError(task: Task, error: TaskResult['error']): Promise<
 
 async function processTask(task: Task): Promise<void> {
   const { accountId, transactions } = task;
+
+  void emitEvent(resultRedis, {
+    ts: Date.now(),
+    state: TxnState.Processing,
+    accountId,
+    batchId: task.taskId,
+    windowStart: task.windowStart,
+    size: transactions.length,
+    az: config.azId,
+  });
 
   try {
     for (let attempt = 0; attempt < MAX_OCC_RETRIES; attempt++) {
@@ -114,11 +131,23 @@ async function processTask(task: Task): Promise<void> {
         // 用獨立 try-catch：審計入列失敗屬非關鍵路徑，絕不可覆寫已成功提交的交易結果（避免 dual-write 不一致）。
         try {
           const microUacs = transactions.map((t, i) => microUacHexFor(t, i, newVersion));
-          const auditJob: AuditJob = { accountId, microUacs };
+          const auditJob: AuditJob = { accountId, batchId: task.taskId, microUacs };
           await resultRedis.lpush(AUDIT_QUEUE, JSON.stringify(auditJob));
         } catch (auditErr) {
           console.error(`[${config.serviceName}] 寫入審計佇列失敗（non-blocking）:`, auditErr);
         }
+
+        void emitEvent(resultRedis, {
+          ts: Date.now(),
+          state: TxnState.Committed,
+          accountId,
+          batchId: task.taskId,
+          windowStart: task.windowStart,
+          size: transactions.length,
+          version: newVersion,
+          balance: newBalance,
+          az: config.azId,
+        });
 
         console.log(
           `[${config.serviceName}] batch account=${accountId} window=${task.windowStart} ` +

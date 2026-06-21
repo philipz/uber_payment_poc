@@ -53,7 +53,22 @@ export interface Task {
 // 後處理審計任務：一個已提交 batch 的 MicroUAC 集合（hex 編碼）
 export interface AuditJob {
   accountId: string;
+  batchId: string;
   microUacs: string[]; // 每筆為 48-byte MicroUAC 的 hex
+}
+
+// 狀態機領域事件（廣播給儀表板）。並非每個欄位都適用於每個狀態。
+export interface DomainEvent {
+  ts: number;
+  state: TxnState;
+  accountId: string;
+  transactionId?: string;
+  batchId?: string;
+  windowStart?: number;
+  size?: number; // batch 內交易數
+  version?: number; // 提交後賬戶版本
+  balance?: number;
+  az?: string; // 處理的 worker AZ
 }
 
 // worker 寫入結果快取、creator 輪詢回傳

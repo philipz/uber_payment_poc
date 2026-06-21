@@ -58,6 +58,7 @@ npm run test:e2e   # 端到端測試（需先 docker compose up）
 - ✅ **Phase 2**：250ms 時間窗口聚合（Lua + Redis TIME 權威時鐘歸集、每窗口 setTimeout 關閉 + sweeper 兜底、N 筆壓成單次讀寫）
 - ✅ **Phase 3**：多 worker 競爭 + Exactly-Once（3 個 AZ 節點搶同一佇列、樂觀鎖保證恰好一次提交、無重複/遺漏）
 - ✅ **Phase 4**：MicroUAC 48-byte 二進位審計 + 後處理（worker 提交後推審計佇列、post-process 非同步落庫、Kafka stub）
+- ✅ **Phase 5**：狀態機事件流 + SSE Web 儀表板（Redis pub/sub 事件匯流排、creator 轉發 SSE、瀏覽器開 `http://localhost:3000/` 即時看流轉）
 
 ### 試打一筆交易（需先 `docker compose up`）
 
