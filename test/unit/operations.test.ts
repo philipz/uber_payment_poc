@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { applyOperation, replayBatch } from '../../src/shared/operations';
+import { applyOperation, dedupeTransactions, replayBatch } from '../../src/shared/operations';
 import { OperationType, type TransactionInput } from '../../src/shared/types';
+
+const tx = (id: string): TransactionInput => ({
+  transactionId: id,
+  operationType: OperationType.Credit,
+  amount: 1,
+});
 
 describe('applyOperation', () => {
   it('Credit 增加餘額', () => {
@@ -42,5 +48,21 @@ describe('replayBatch', () => {
 
   it('空批次回原餘額', () => {
     expect(replayBatch(500, [])).toEqual({ newBalance: 500, steps: [] });
+  });
+});
+
+describe('dedupeTransactions', () => {
+  it('排除批次內重複的 transactionId（保留首次）', () => {
+    const out = dedupeTransactions([tx('a'), tx('b'), tx('a')], new Set());
+    expect(out.map((t) => t.transactionId)).toEqual(['a', 'b']);
+  });
+
+  it('排除已套用的 transactionId', () => {
+    const out = dedupeTransactions([tx('a'), tx('b')], new Set(['a']));
+    expect(out.map((t) => t.transactionId)).toEqual(['b']);
+  });
+
+  it('全部重複時回空陣列', () => {
+    expect(dedupeTransactions([tx('a'), tx('a')], new Set(['a']))).toEqual([]);
   });
 });

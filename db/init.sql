@@ -18,6 +18,15 @@ CREATE TABLE IF NOT EXISTS audit (
 
 CREATE INDEX IF NOT EXISTS idx_audit_account ON audit (account_id);
 
+-- 交易級冪等：已套用的 transactionId 記錄，與餘額更新同事務寫入，
+-- 防止並發重送/快取失效/重認領造成的重複記帳（見 issue #15）。
+CREATE TABLE IF NOT EXISTS processed_transactions (
+  transaction_id  TEXT        PRIMARY KEY,
+  account_id      TEXT        NOT NULL,
+  applied_version INTEGER     NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 種子熱點賬戶
 INSERT INTO accounts (id, balance, version)
 VALUES ('hot-account-1', 0, 0)
