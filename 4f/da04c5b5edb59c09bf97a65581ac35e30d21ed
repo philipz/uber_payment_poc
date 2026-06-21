@@ -1,0 +1,21 @@
+"docs/Implementation Plan.md"
+  s_0fe26885633c60::t_628effb75736a7 1-77
+docs/adr/0001-single-server-nodejs-poc.md
+  s_0fe26885633c60::t_295941c533c2ff 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "4fda04c5b5edb59c09bf97a65581ac35e30d21ed",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
