@@ -1,0 +1,49 @@
+package.json
+  s_0fe26885633c60::t_cf77cd8cb33620 1-25
+src/shared/config.ts
+  s_0fe26885633c60::t_81e9642a888a52 1-19
+src/shared/types.ts
+  s_0fe26885633c60::t_4399d9ca55adec 1-45
+.dockerignore
+  s_0fe26885633c60::t_af1ae25d28d3fd 1-5
+.gitignore
+  s_0fe26885633c60::t_b0ead78ffbffbf 1-4
+Dockerfile
+  s_0fe26885633c60::t_80c8c5f1aef355 1-15
+src/services/batch-process/index.ts
+  s_0fe26885633c60::t_aaad4bf4a1aa4e 1-7
+docker-compose.yml
+  s_0fe26885633c60::t_107e60674b8add 1-94
+src/services/load-generator/index.ts
+  s_0fe26885633c60::t_9137b3a5e445c6 1-5
+src/services/batch-creator/index.ts
+  s_0fe26885633c60::t_1d7f4b5ae11761 1-7
+db/init.sql
+  s_0fe26885633c60::t_173f7151d329b1 1-24
+src/shared/health.ts
+  s_0fe26885633c60::t_ca208f0ae6c859 1-29
+README.md
+  s_0fe26885633c60::t_f6f11700ae1a1f 3-9,14-45
+src/services/post-process/index.ts
+  s_0fe26885633c60::t_591745fbfaa44f 1-7
+tsconfig.json
+  s_0fe26885633c60::t_2e3a86d56a94d4 1-16
+.prettierrc.json
+  s_0fe26885633c60::t_756b1c55f9e1b9 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "1b57b086bdaa82903fee2ea7fb6458089153042a",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
