@@ -19,7 +19,8 @@ async function publish(job: FinalizeJob): Promise<void> {
   console.log(
     `[${config.serviceName}] kafka(stub) 發布變更事件 account=${job.accountId} records=${job.count}`,
   );
-  void emitEvent(pubRedis, {
+  // publish() 被 workLoop await，故此處 await 讓事件確實發布後再處理下一則（emitEvent 內部已含 try-catch）
+  await emitEvent(pubRedis, {
     ts: Date.now(),
     state: TxnState.Finalized,
     accountId: job.accountId,
