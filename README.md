@@ -25,7 +25,7 @@ docker compose down               # 關閉
 | 服務 | 角色 | Port |
 | ---- | ---- | ---- |
 | batch-creator | 接收 REST、Redis 窗口歸集、輪詢結果回應 | 3000（對外）|
-| batch-process | 競爭領取任務、樂觀鎖寫入主庫（Phase 3 擴成 3 個 AZ）| 3001 |
+| batch-process-az1/2/3 | 3 個 AZ 節點競爭領取任務、樂觀鎖寫入主庫（Exactly-Once）| 3001（內部）|
 | post-process | 非同步審計（MicroUAC）、下游 stub | 3002 |
 | redis | 窗口協調 / 全域佇列 / results cache | 6379 |
 | postgres | User Account Store + 審計表 | 5432 |
@@ -56,6 +56,7 @@ npm run test:e2e   # 端到端測試（需先 docker compose up）
 - ✅ **Phase 0**：專案骨架與 Compose 骨幹
 - ✅ **Phase 1**：最薄端到端切片（`POST /accounts/:id/transactions` → Redis 佇列 → worker 讀 Postgres + 樂觀鎖寫 → results cache → 回應）
 - ✅ **Phase 2**：250ms 時間窗口聚合（Lua + Redis TIME 權威時鐘歸集、每窗口 setTimeout 關閉 + sweeper 兜底、N 筆壓成單次讀寫）
+- ✅ **Phase 3**：多 worker 競爭 + Exactly-Once（3 個 AZ 節點搶同一佇列、樂觀鎖保證恰好一次提交、無重複/遺漏）
 
 ### 試打一筆交易（需先 `docker compose up`）
 

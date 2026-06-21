@@ -60,7 +60,9 @@ services:
       SERVICE_NAME: batch-creator
       PORT: '3000'
 
-  batch-process:
+  # 三個 batch-process 節點分屬不同 AZ，競爭同一 Redis 全域佇列。
+  # 各為獨立容器，內部 PORT 皆 3001（不對外發布故不衝突）。
+  batch-process-az1:
     <<: *app
     command: ['node', 'dist/services/batch-process/index.js']
     environment:
@@ -68,6 +70,24 @@ services:
       SERVICE_NAME: batch-process
       PORT: '3001'
       AZ_ID: az-1
+
+  batch-process-az2:
+    <<: *app
+    command: ['node', 'dist/services/batch-process/index.js']
+    environment:
+      <<: *app-env
+      SERVICE_NAME: batch-process
+      PORT: '3001'
+      AZ_ID: az-2
+
+  batch-process-az3:
+    <<: *app
+    command: ['node', 'dist/services/batch-process/index.js']
+    environment:
+      <<: *app-env
+      SERVICE_NAME: batch-process
+      PORT: '3001'
+      AZ_ID: az-3
 
   post-process:
     <<: *app
