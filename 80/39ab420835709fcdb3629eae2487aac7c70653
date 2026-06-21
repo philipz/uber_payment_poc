@@ -1,0 +1,30 @@
+package.json
+  s_0fe26885633c60::t_4b233e98300a04 9-13
+  s_0fe26885633c60::t_2e955c0b70d296 26-27
+test/unit/config.test.ts
+  s_0fe26885633c60::t_f7e62b0fe13c58 1-29
+README.md
+  s_0fe26885633c60::t_71fc4539878f82 41-42,45-50
+.github/workflows/ci.yml
+  s_0fe26885633c60::t_636ca8dbc1db9a 1-50
+vitest.config.ts
+  s_0fe26885633c60::t_f99a15bf1c390c 1-10
+test/e2e/health.test.ts
+  s_0fe26885633c60::t_428c52e9b4f1e0 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "8039ab420835709fcdb3629eae2487aac7c70653",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
