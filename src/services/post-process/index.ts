@@ -3,13 +3,15 @@ import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
 import { AUDIT_QUEUE } from '../../shared/keys';
-import type { AuditJob } from '../../shared/types';
+import { emitEvent } from '../../shared/events';
+import { TxnState, type AuditJob } from '../../shared/types';
 
 const config = loadConfig();
 // 健康檢查伺服器（供 compose healthcheck 用）
 startHealthServer(config.port, config.serviceName);
 
 const queueRedis = createRedis(config); // 專用於阻塞式 BRPOP
+const pubRedis = createRedis(config); // 發布領域事件
 const pool = new Pool({ connectionString: config.databaseUrl });
 
 // 將一個 batch 的 MicroUAC 持久化至審計庫，並對下游發布事件（Kafka stub）。
@@ -30,6 +32,14 @@ async function persist(job: AuditJob): Promise<void> {
   console.log(
     `[${config.serviceName}] kafka(stub) 發布變更事件 account=${job.accountId} records=${job.microUacs.length}`,
   );
+
+  void emitEvent(pubRedis, {
+    ts: Date.now(),
+    state: TxnState.Finalized,
+    accountId: job.accountId,
+    batchId: job.batchId,
+    size: job.microUacs.length,
+  });
 }
 
 async function workLoop(): Promise<void> {

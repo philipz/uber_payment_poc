@@ -44,7 +44,7 @@ local task = '{"taskId":"' .. bucket .. '","accountId":"' .. accountId ..
   '","windowStart":' .. windowStart ..
   ',"transactions":[' .. table.concat(items, ',') .. ']}'
 redis.call('LPUSH', queue, task)
-return 1
+return #items
 `;
 
 // 兜底：關閉所有「已到期」的窗口。setTimeout 漏掉或節點重啟時由低頻 interval 呼叫。

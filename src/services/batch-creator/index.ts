@@ -2,12 +2,39 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { loadConfig } from '../../shared/config';
 import { startHealthServer } from '../../shared/health';
 import { createRedis } from '../../shared/redis';
-import { GLOBAL_QUEUE, WINDOW_MS, resultKey } from '../../shared/keys';
+import { EVENTS_CHANNEL, GLOBAL_QUEUE, WINDOW_MS, resultKey } from '../../shared/keys';
 import { ACCUMULATE_LUA, CLOSE_ONE_LUA, SWEEP_LUA } from '../../shared/lua';
-import { OperationType, type TaskResult, type TransactionInput } from '../../shared/types';
+import { emitEvent } from '../../shared/events';
+import {
+  OperationType,
+  TxnState,
+  type TaskResult,
+  type TransactionInput,
+} from '../../shared/types';
+import { DASHBOARD_HTML } from './dashboard';
 
 const config = loadConfig();
 const redis = createRedis(config);
+
+// SSE：creator 訂閱 Redis events 頻道，轉發給所有連線的儀表板客戶端
+const sseClients = new Set<ServerResponse>();
+const subRedis = createRedis(config);
+void subRedis.subscribe(EVENTS_CHANNEL);
+subRedis.on('message', (_channel, message) => {
+  for (const res of sseClients) res.write(`data: ${message}\n\n`);
+});
+
+function handleSse(req: IncomingMessage, res: ServerResponse): void {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'access-control-allow-origin': '*',
+  });
+  res.write(': connected\n\n');
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+}
 
 const POLL_INTERVAL_MS = 10;
 const POLL_TIMEOUT_MS = 5000;
@@ -19,9 +46,19 @@ const ACCOUNT_ID_RE = /^[A-Za-z0-9_-]+$/; // 限制字元，避免破壞 Lua 內
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // 精準關閉「單一」窗口（由該窗口的 setTimeout 觸發）。
-async function closeWindow(bucket: string): Promise<void> {
+async function closeWindow(bucket: string, accountId: string, windowStart: number): Promise<void> {
   try {
-    await redis.eval(CLOSE_ONE_LUA, 0, bucket, GLOBAL_QUEUE);
+    const count = (await redis.eval(CLOSE_ONE_LUA, 0, bucket, GLOBAL_QUEUE)) as number;
+    if (count > 0) {
+      void emitEvent(redis, {
+        ts: Date.now(),
+        state: TxnState.Queued,
+        accountId,
+        batchId: bucket,
+        windowStart,
+        size: count,
+      });
+    }
   } catch (err) {
     console.error(`[${config.serviceName}] close window error:`, err);
   }
@@ -132,6 +169,13 @@ async function handleTransaction(
     const txn = parseTransaction(body);
     if (!txn) return sendJson(res, 400, { error: 'invalid transaction' });
 
+    void emitEvent(redis, {
+      ts: Date.now(),
+      state: TxnState.Ingested,
+      accountId,
+      transactionId: txn.transactionId,
+    });
+
     // 以客戶端 transactionId 作為結果鍵，提供基本冪等：
     // 若結果快取中已有同一交易的結果（results cache TTL 窗口內），直接回傳，避免重試造成重複記帳。
     // 注意：這是輕量防護，非完整去重——兩個並發同 id 仍可能雙進，TTL 過後亦失效；完整去重待專門處理。
@@ -147,10 +191,18 @@ async function handleTransaction(
       String(WINDOW_MS),
     )) as [number, number, number];
 
+    void emitEvent(redis, {
+      ts: Date.now(),
+      state: TxnState.Accumulating,
+      accountId,
+      transactionId: txn.transactionId,
+      windowStart,
+    });
+
     // 新窗口：排一個 setTimeout 在截止時「只關閉自己這個窗口」（sweeper 為兜底）
     if (isNew === 1) {
       const bucket = `batch:${windowStart}:${accountId}`;
-      setTimeout(() => void closeWindow(bucket), Math.max(0, msUntilClose));
+      setTimeout(() => void closeWindow(bucket, accountId, windowStart), Math.max(0, msUntilClose));
     }
 
     const result = await pollResult(txn.transactionId);
@@ -165,6 +217,15 @@ async function handleTransaction(
 const TXN_ROUTE = /^\/accounts\/([^/]+)\/transactions$/;
 
 function routes(req: IncomingMessage, res: ServerResponse): boolean {
+  if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(DASHBOARD_HTML);
+    return true;
+  }
+  if (req.method === 'GET' && req.url === '/events') {
+    handleSse(req, res);
+    return true;
+  }
   const match = req.url ? TXN_ROUTE.exec(req.url) : null;
   if (req.method === 'POST' && match) {
     void handleTransaction(decodeURIComponent(match[1]), req, res);
