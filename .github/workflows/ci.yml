@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Lint / Build / Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run test:unit
+
+  e2e:
+    name: E2E (docker compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 啟動 stack
+        run: docker compose up -d --build
+      - name: 等待容器健康
+        run: |
+          for i in $(seq 1 30); do
+            healthy=$(docker compose ps --format '{{.Health}}' | grep -c healthy || true)
+            if [ "$healthy" -ge 5 ]; then echo "all healthy"; exit 0; fi
+            sleep 2
+          done
+          echo "容器未在時限內全部健康"
+          docker compose ps
+          docker compose logs
+          exit 1
+      - name: 跑 E2E
+        run: npm run test:e2e
+      - name: 收尾
+        if: always()
+        run: docker compose down -v

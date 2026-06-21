@@ -1,0 +1,29 @@
+{
+  "name": "uber-payment-batching-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "高並發金融賬本批次處理 PoC（單機 Node.js + Redis + Postgres）",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check \"{src,test}/**/*.ts\"",
+    "format": "prettier --write \"{src,test}/**/*.ts\"",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:e2e": "vitest run test/e2e",
+    "start:creator": "node dist/services/batch-creator/index.js",
+    "start:process": "node dist/services/batch-process/index.js",
+    "start:post": "node dist/services/post-process/index.js"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
