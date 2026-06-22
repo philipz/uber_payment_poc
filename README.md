@@ -73,8 +73,8 @@ flowchart TB
     gqueue -->|BLMOVE 競爭| w
     w -->|"樂觀鎖 + 審計原子提交"| pg
     w -->|寫結果| rcache
-    rcache -.輪詢命中.-> rest
-    rest -.回應.-> client
+    rcache -.->|輪詢命中| rest
+    rest -.->|回應| client
     w -->|finalize 通知| fqueue
     fqueue --> post
     post --> kafka
