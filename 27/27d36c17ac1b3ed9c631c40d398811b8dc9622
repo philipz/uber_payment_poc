@@ -1,0 +1,19 @@
+README.md
+  s_0fe26885633c60::t_64a3c53663f210 76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "2727d36c17ac1b3ed9c631c40d398811b8dc9622",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
