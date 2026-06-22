@@ -41,21 +41,49 @@
 
 ## 架構
 
-```
-                          ┌──────────────────────────────────────────────┐
-   client ──REST──▶ batch-creator ──Lua(ACCUMULATE)──▶ Redis 窗口 bucket   │
-    (POST txn)        │  每窗口 setTimeout / sweeper ──Lua(CLOSE/SWEEP)──┐ │
-    輪詢 results       │                                                  ▼ │
-         ◀────────────┘                                   Redis 全域任務佇列
-                                                                    │  (BLMOVE 競爭)
-               ┌──────────────┬──────────────┬──────────────┐       ▼
-         batch-process-az1  -az2           -az3      （可靠佇列與重認領機制）
-               │  單次讀 → 記憶體重放與去重 → 單次 DB 事務（餘額/去重表/審計原子落庫）
-               │  寫 results cache、推 finalize 佇列、發領域事件
-               ▼
-         Postgres（accounts 主庫 + audit 審計）        post-process（消費 finalize 佇列 → Kafka stub）
-                                                                    │
-   瀏覽器 ◀──SSE── batch-creator ◀── Redis pub/sub「events」── 各服務發布狀態機事件
+```mermaid
+flowchart TB
+    client["客戶端<br/>交易處理器 / 授權凍結"]
+    browser["瀏覽器儀表板"]
+
+    subgraph creator["batch-creator · REST :3000"]
+        rest["POST /accounts/:id/transactions<br/>輪詢 results cache 後回應"]
+        sse["SSE /events 轉發"]
+    end
+
+    subgraph redis["Redis 協調中樞"]
+        bucket["250ms 窗口 bucket"]
+        gqueue["全域任務佇列"]
+        rcache["results cache"]
+        fqueue["finalize 通知佇列"]
+        events["pub/sub: events"]
+    end
+
+    subgraph workers["batch-process ×3 · az-1/2/3"]
+        w["BLMOVE 競爭領取 + 心跳/重認領<br/>單次讀 → 記憶體重放 + 去重<br/>單一 DB 交易：餘額 / 去重 / 審計 原子落庫"]
+    end
+
+    pg[("Postgres<br/>accounts · audit · processed_transactions")]
+    post["post-process<br/>下游傳播"]
+    kafka["Kafka stub (stdout)"]
+
+    client -->|REST| rest
+    rest -->|"Lua ACCUMULATE（Redis TIME 分窗）"| bucket
+    bucket -->|"每窗口 setTimeout / sweeper：Lua CLOSE / SWEEP"| gqueue
+    gqueue -->|BLMOVE 競爭| w
+    w -->|"樂觀鎖 + 審計原子提交"| pg
+    w -->|寫結果| rcache
+    rcache -.->|輪詢命中| rest
+    rest -.->|回應| client
+    w -->|finalize 通知| fqueue
+    fqueue --> post
+    post --> kafka
+
+    rest -->|emitEvent| events
+    w -->|emitEvent| events
+    post -->|emitEvent| events
+    events --> sse
+    sse -->|SSE| browser
 ```
 
 ### 服務一覽
