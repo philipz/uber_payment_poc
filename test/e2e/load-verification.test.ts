@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { execSync } from 'node:child_process';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { MICRO_UAC_SIZE, unpackMicroUAC } from '../../src/shared/microuac';
+
+const execAsync = promisify(exec);
 
 const DB_URL = process.env.E2E_DATABASE_URL ?? 'postgres://poc:poc@localhost:5432/poc';
 // 用獨立帳號隔離，避免與其他並行 e2e 測試共用 hot-account-1 互相干擾
@@ -20,13 +23,13 @@ afterAll(async () => {
 
 describe('E2E 隨機金額負載與審計一致性驗證', () => {
   it('執行負載產生器，核對所有隨機金額與審計軌跡 100% 一致且無遺漏', async () => {
-    // 對獨立帳號跑 load-generator（runner 以 1~10 隨機金額 credit），含 batched 與 naive 兩模式
-    const output = execSync(
+    // 對獨立帳號跑 load-generator（runner 以 1~10 隨機金額 credit），含 batched 與 naive 兩模式。
+    // 用非阻塞的 execAsync，避免 execSync 阻塞 event loop 數秒導致 pg pool/心跳停擺。
+    const { stdout } = await execAsync(
       `docker compose --profile tools run --rm ` +
         `-e LOAD_ACCOUNT=${ACCOUNT} -e LOAD_CONCURRENCY=25 -e LOAD_DURATION_MS=3000 load-generator`,
-      { encoding: 'utf-8' },
     );
-    console.log('load-generator output:\n', output);
+    console.log('load-generator output:\n', stdout);
 
     // 等待在途批次與審計完全落庫
     await new Promise((r) => setTimeout(r, 2000));
@@ -35,7 +38,9 @@ describe('E2E 隨機金額負載與審計一致性驗證', () => {
       'SELECT balance, version FROM accounts WHERE id = $1',
       [ACCOUNT],
     );
-    const dbBalance = BigInt(accountRes.rows[0].balance);
+    const account = accountRes.rows[0];
+    expect(account).toBeDefined();
+    const dbBalance = BigInt(account.balance);
 
     const auditRes = await pool.query<{ micro_uac: Buffer; status: string }>(
       'SELECT micro_uac, status FROM audit WHERE account_id = $1 ORDER BY id ASC',
