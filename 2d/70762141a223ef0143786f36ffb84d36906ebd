@@ -1,0 +1,21 @@
+test/e2e/load-verification.test.ts
+  s_0fe26885633c60::t_8c1c63209aafaa 3-4,7
+  s_0fe26885633c60::t_14138b799c6f3d 26-28,32
+  s_0fe26885633c60::t_60dfd6737b719c 41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.10",
+  "base_commit_sha": "2d70762141a223ef0143786f36ffb84d36906ebd",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
