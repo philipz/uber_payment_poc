@@ -46,13 +46,14 @@ export async function runScenario(opts: RunOptions, mode: Mode): Promise<Scenari
     while (Date.now() < deadline) {
       const t0 = Date.now();
       try {
+        const randomAmount = Math.floor(Math.random() * 10) + 1;
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             transactionId: randomUUID(),
             operationType: OperationType.Credit,
-            amount: 1,
+            amount: randomAmount,
           }),
           signal: AbortSignal.timeout(5000),
         });
