@@ -1,0 +1,23 @@
+test/e2e/load.test.ts
+  s_0fe26885633c60::t_482f1aba9db47e 37-38,42-44
+test/e2e/load-verification.test.ts
+  s_0fe26885633c60::t_4f44b6cf07aa4b 7-8,14,22-23,25-27,29,31,36,42,48,52,59,64-66,68,70
+vitest.config.ts
+  s_0fe26885633c60::t_22236041959f2d 9-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.10",
+  "base_commit_sha": "9304ff04da7829409c629a5dcce49104ce15b40d",
+  "prompts": {},
+  "sessions": {
+    "s_0fe26885633c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "796fb574-c149-4609-80b9-50442c5fa166",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
