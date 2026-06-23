@@ -234,6 +234,95 @@ docker compose exec redis redis-cli KEYS 'metrics:*'         # 計量鍵
 
 ---
 
+## 審計與一致性稽核
+
+說明「每筆 `micro_uac` 如何審計」與「如何確保每筆交易紀錄正確且完全一致」。
+
+### A. 逐筆審計：解碼一筆 micro_uac
+
+`audit` 表的 `micro_uac` 是 48-byte 二進位（big-endian），與餘額變更**同一個 DB 交易**原子寫入（`status='Committed'`）。
+
+```bash
+# 取出最新幾筆審計的 hex
+docker compose exec postgres psql -U poc -d poc -c \
+  "SELECT account_id, octet_length(micro_uac) AS bytes, status, encode(micro_uac,'hex') AS hex
+   FROM audit ORDER BY id DESC LIMIT 3;"
+```
+
+程式端以 `unpackMicroUAC(buf)`（[`src/shared/microuac.ts`](src/shared/microuac.ts)）還原欄位：
+
+| 欄位 | offset/型別 | 審計作用 |
+| ---- | ---- | ---- |
+| TransactionID | 0 / Int64(8) | 交易指紋（客戶端 `transactionId` 的 MD5 前 8 bytes）|
+| OperationType | 8 / UInt8(1) | `1`貸記 `2`借記 `3`授權 `4`釋放 → 金額進出方向 |
+| Amount | 9 / Int64(8) | 金額（最小貨幣單位，整數）|
+| SequenceNumber | 17 / UInt16(2) | 批次內順序 → 依序重放 |
+| AccountVersion | 19 / UInt32(4) | 此變更提交後的賬戶版本 → 綁定餘額狀態 |
+| ReferenceHash | 23 / Binary(16) | 業務單據（訂單）MD5 → 冪等/重入判定 |
+| BusinessTime | 39 / UInt32(4) | 業務事件 Unix 秒 |
+| ReservedBytes | 43 / Binary(5) | 預留 |
+
+> 註：TransactionID/ReferenceHash 為縮減雜湊（快速比對指紋，非可逆原 ID）；要對應回字串原 ID 需另查外部索引（spec 的完整 UAC / Transaction DB）。
+
+### B. 對賬：用審計流水重建餘額並比對（應回 0 列）
+
+直接在 SQL 解碼 `OperationType`（byte 8）與 `Amount`（bytes 9–16, big-endian），依方向加總後與 `accounts.balance` 比對。**回傳列數為 0 代表完全一致**：
+
+```sql
+WITH decoded AS (
+  SELECT account_id,
+         get_byte(micro_uac, 8) AS op,
+         ( get_byte(micro_uac, 9)::numeric  * 72057594037927936
+         + get_byte(micro_uac,10)::numeric  * 281474976710656
+         + get_byte(micro_uac,11)::numeric  * 1099511627776
+         + get_byte(micro_uac,12)::numeric  * 4294967296
+         + get_byte(micro_uac,13)::numeric  * 16777216
+         + get_byte(micro_uac,14)::numeric  * 65536
+         + get_byte(micro_uac,15)::numeric  * 256
+         + get_byte(micro_uac,16)::numeric ) AS amount
+  FROM audit
+)
+SELECT a.id, a.balance,
+       COALESCE(SUM(CASE WHEN d.op IN (1,4) THEN d.amount ELSE -d.amount END), 0) AS audit_sum
+FROM accounts a
+LEFT JOIN decoded d ON d.account_id = a.id
+GROUP BY a.id, a.balance
+HAVING a.balance <> COALESCE(SUM(CASE WHEN d.op IN (1,4) THEN d.amount ELSE -d.amount END), 0);
+```
+
+（`op IN (1,4)`=Credit/Release 為 +，`2,3`=Debit/Authorize 為 −；與 `applyOperation` 一致。）
+
+### C. 完整性：無孤兒、無遺漏（應回 0 列）
+
+因 #16 餘額與審計同交易、#15 每筆交易恰記一次，恆有不變量 **audit 筆數 == processed_transactions 筆數**。下列查詢列出違反者，**應為 0 列**：
+
+```sql
+SELECT a.id,
+       (SELECT count(*) FROM audit                  WHERE account_id = a.id) AS audit_n,
+       (SELECT count(*) FROM processed_transactions WHERE account_id = a.id) AS processed_n
+FROM accounts a
+WHERE (SELECT count(*) FROM audit                  WHERE account_id = a.id)
+   <> (SELECT count(*) FROM processed_transactions WHERE account_id = a.id);
+```
+
+### D. 時點重建（point-in-time）
+
+依 `(AccountVersion, SequenceNumber)` 排序解碼重放，即可重建任一版本當下的餘額；每個 `AccountVersion` 對應一個批次提交。
+
+### E. 正確性與完全一致由什麼保證
+
+| 保證 | 機制 | 對應 |
+| ---- | ---- | ---- |
+| **原子性**（不會有變更無審計）| 餘額、`processed_transactions`、`audit` 在**同一 DB 交易**提交 | #16 |
+| **冪等**（同筆交易不重複記帳）| `processed_transactions` 去重 + 批次內去重；重試回歷史結果 | #15 |
+| **Exactly-Once**（並發/重認領不重不漏）| `UPDATE ... WHERE version=?` 樂觀鎖 + `BLMOVE` 可靠佇列重認領，配合冪等 | #3 / #17 |
+| **順序**（依序套用）| Redis TIME 權威時鐘分窗 + 批次內 `SequenceNumber` 重放 | Phase 2 |
+| **自動驗證** | E2E 斷言餘額/版本/壓縮比/Exactly-Once/審計筆數一致（`test/e2e/`），每個 PR 由 CI 跑 | — |
+
+> 一鍵自我稽核：跑完負載後依序執行 **B** 與 **C** 兩段 SQL，兩者皆回 0 列即代表「每筆交易紀錄正確且完全一致」。
+
+---
+
 ## 本機開發與測試
 
 ```bash
