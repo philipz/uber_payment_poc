@@ -34,10 +34,13 @@ describe('Phase 6 對照組：批次 vs 天真單筆', () => {
     expect(batched.ratio).toBeGreaterThan(2);
     expect(batched.ratio).toBeGreaterThan(naive.ratio * 1.5);
 
-    // 餘額一致性：每筆 credit 1，最終餘額應等於兩模式成功請求總數
+    // 餘額一致性：runner 每筆 credit 隨機 1~10，故最終餘額應落在 [成功數, 成功數×10]
+    const total = batched.requests + naive.requests;
     const r = await pool.query<{ balance: string }>('SELECT balance FROM accounts WHERE id = $1', [
       ACCOUNT,
     ]);
-    expect(Number(r.rows[0].balance)).toBe(batched.requests + naive.requests);
+    const balance = Number(r.rows[0].balance);
+    expect(balance).toBeGreaterThanOrEqual(total);
+    expect(balance).toBeLessThanOrEqual(total * 10);
   });
 });
