@@ -264,9 +264,14 @@ docker compose exec postgres psql -U poc -d poc -c \
 
 > 註：TransactionID/ReferenceHash 為縮減雜湊（快速比對指紋，非可逆原 ID）；要對應回字串原 ID 需另查外部索引（spec 的完整 UAC / Transaction DB）。
 
-### B. 對賬：用審計流水重建餘額並比對（應回 0 列）
+### B. 對賬：用審計流水重建餘額並比對（生產環境應回 0 列）
 
 直接在 SQL 解碼 `OperationType`（byte 8）與 `Amount`（bytes 9–16, big-endian），依方向加總後與 `accounts.balance` 比對。**回傳列數為 0 代表完全一致**：
+
+> [!NOTE]
+> **關於測試帳戶的說明**：
+> 在跑過 `npm run test:e2e` 後，測試腳本會為部分交易級冪等測試帳戶（例如 `idem-strict-*`、`idem-account-*`）手動直接向資料庫 `INSERT` 注入 `1000` 的初始餘額以供測試（這並非透過業務端 worker 寫入，因此沒有對應的 `micro_uac` 紀錄）。這些帳戶在此處對帳時會出現 `balance - audit_sum = 1000` 的偏差，這屬於測試設計的正常現象。
+> 對於生產環境或正常以 `0` 元開戶（如種子帳戶 `hot-account-1`）進行交易的帳戶，此查詢會完美返回 0 列。
 
 ```sql
 WITH decoded AS (
