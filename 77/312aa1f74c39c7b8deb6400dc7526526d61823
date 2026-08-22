@@ -1,0 +1,42 @@
+.dsh/skills/factory-pr-stacking/SKILL.md
+  h_1b119f25eaf333 1-58
+.dsh/skills/factory-self-review/SKILL.md
+  h_1b119f25eaf333 1-29
+.dsh/skills/factory-stop-rules/SKILL.md
+  h_1b119f25eaf333 1-21
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 1-62
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  h_1b119f25eaf333 1-49
+.github/factory/risk-paths.yml
+  h_1b119f25eaf333 1-64
+.github/factory/task-template-fix-bug.txt
+  h_1b119f25eaf333 1-13
+.github/factory/task-template-update-deps.txt
+  h_1b119f25eaf333 1-13
+.github/factory/task-template-write-docs.txt
+  h_1b119f25eaf333 1-13
+.github/factory/task-template.txt
+  h_1b119f25eaf333 1-12
+.github/workflows/ci.yml
+  h_1b119f25eaf333 5-7,9
+.github/workflows/factory-issue-check.yml
+  h_1b119f25eaf333 1-51
+AGENTS.md
+  h_1b119f25eaf333 1-31
+CODEOWNERS
+  h_1b119f25eaf333 1-33
+catalog-info.yaml
+  h_1b119f25eaf333 1-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "77312aa1f74c39c7b8deb6400dc7526526d61823",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
