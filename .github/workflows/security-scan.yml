@@ -1,0 +1,38 @@
+# Security scan（第一層 security，免費、不依賴 GHAS，比照 spring-modulith-orders）。
+# gitleaks（密鑰洩漏）+ Semgrep（開源 SAST，TypeScript 規則）。npm 依賴漏洞由
+# Dependabot alerts 涵蓋（npm 生態 GitHub 原生支援），見 dependabot.yml。
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks (secret scanning)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Semgrep (SAST)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/typescript
