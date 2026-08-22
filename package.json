@@ -16,7 +16,7 @@
     "start:post": "node dist/services/post-process/index.js"
   },
   "dependencies": {
-    "ioredis": "^5.4.1",
+    "ioredis": "^6.0.0",
     "pg": "^8.23.0"
   },
   "devDependencies": {
