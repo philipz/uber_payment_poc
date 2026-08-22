@@ -1,0 +1,23 @@
+# uber_payment_poc catalog（Node.js/TypeScript 金融賬本試點；依該 repo 結構登錄，2026-08-22）。
+#
+# 三軸（docs/03 §2.2、docs/06 §3）：business-criticality / risk-profile / complexity。
+# 本專案承載金融賬本批次處理（Hot Account / Exactly-Once / OCC）+ 審計軌跡 + 對外
+# dashboard API，保守採高風險輪廓：多數工作項落在 in-loop（人類主導）。PoC 階段
+# complexity 取 low；若要讓 agent 實跑動作型工作項，比照裁決 #568 調降。
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: uber-payment-batching-poc
+  description: 高並發金融賬本批次處理 PoC（Node.js 22 / TypeScript / Redis / Postgres）
+  annotations:
+    # 三軸評分（0–2 每軸；總分 6 為最高風險，直接 in-loop）
+    factory.io/business-criticality: strategic
+    factory.io/risk-profile: high
+    factory.io/complexity: low
+    # 技術棧 annotation
+    factory.io/stack: node-typescript
+    factory.io/test-framework: vitest
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/factory-team

@@ -1,0 +1,12 @@
+處理 GitHub Issue #<ISSUE>（repo: <REPO>，工廠 trunk 分支: <BASE_BRANCH>）。
+
+1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules。
+2. 若環境變數 GH_TOKEN 不存在，先執行：
+   export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
+   export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
+   export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)
+3. 讀取該 Issue 的內容與驗收條件。
+4. 依 factory-pr-stacking 的規則拆分並建立 stacked PR（測試先行；base 為 $BASE_BRANCH，絕不 push 到 main）。
+5. 完成後在 Issue 留言回報產出的 PR 編號，並依 factory-workflow 寫出 .factory/run/report.json。
+
+若觸發任何停手規則，依該規則處理後結束。

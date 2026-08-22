@@ -1,0 +1,51 @@
+# Factory Issue Check（目標 repo 版，自包含、零依賴、零 LLM 成本）。
+#
+# 檢查 factory-work-item 表單欄位（任務類型/需求/DoD）是否齊全：
+# 合規 → 留言「可 dispatch」；不合規 → 留言列出缺失欄位 + workflow 紅燈。
+#
+# 此 workflow 只做格式檢查，不啟動 agent。半自動觸發（label → dispatch）在目標
+# repo 不可行（跨 repo 需要 software_factory 的 actions: write，D6 App 沒有）——
+# 合規後請到 software_factory 的 Actions → Factory Run 手動 dispatch。
+name: Factory Issue Check
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check issue format (form fields)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # gh 需 repo 上下文推斷（無 checkout）——GH_REPO 指定目標 repo
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ISSUE="${{ github.event.issue.number }}"
+          BODY=$(gh issue view "$ISSUE" --json body --jq .body)
+          MISSING=""
+          # 必填欄位標題必須存在（GitHub Issue Forms 產生 `### <標題>`）
+          for field in "任務類型" "需求描述（PRD）" "驗收標準（DoD）"; do
+            if ! printf '%s' "$BODY" | grep -q "### $field"; then
+              MISSING="$MISSING「$field」"
+            fi
+          done
+          # DoD 必須有勾選項（表單未勾選不輸出，故只要有任何 `- [x]` 即合規）
+          ACC=$(printf '%s' "$BODY" | sed -n '/### 驗收標準（DoD）/,/^### /p' | grep -c -- '- \[x\]' || true)
+          if [ "$ACC" -eq 0 ]; then MISSING="$MISSING「驗收標準勾選」"; fi
+
+          if [ -z "$MISSING" ]; then
+            COMMENT='✅ **Issue 格式合規**（factory-issue-check）：任務類型、需求、DoD 齊全。請到 software_factory → Actions → Factory Run 手動 dispatch（填 repo/base_branch/issue_number）。'
+            gh issue comment "$ISSUE" --body "$COMMENT"
+            echo "格式合規"
+          else
+            COMMENT="❌ **Issue 格式不合規**（factory-issue-check）：缺 $MISSING。請依 .github/ISSUE_TEMPLATE/factory-work-item.yml 表單補齊後編輯 Issue（編輯會重新檢查）。"
+            gh issue comment "$ISSUE" --body "$COMMENT"
+            exit 1
+          fi

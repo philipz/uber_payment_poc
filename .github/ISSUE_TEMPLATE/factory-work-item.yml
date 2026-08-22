@@ -1,0 +1,49 @@
+name: Factory Work Item
+description: 開立 factory 工作項（需求 PRD + 驗收標準 DoD）。欄位必填——格式不合會被 factory-issue-check 退回。
+title: "[factory] <一句話需求>"
+labels: ["meta/observation"]
+body:
+  - type: dropdown
+    id: task_type
+    attributes:
+      label: 任務類型
+      description: 決定 task-template 與 skill 分支（docs/09 §3 2.1）
+      options:
+        - agent-add-tests
+        - agent-fix-bug
+        - agent-update-deps
+        - agent-write-docs
+    validations:
+      required: true
+  - type: textarea
+    id: requirement
+    attributes:
+      label: 需求描述（PRD）
+      description: 做什麼、為什麼、範圍。缺可驗證的驗收條件時，agent 會依 factory-stop-rules 停手（SR4）。
+      placeholder: |
+        目標模組 / 檔案：
+        做什麼（一句話）：
+        為什麼：
+        範圍（不碰什麼）：
+    validations:
+      required: true
+  - type: checkboxes
+    id: acceptance
+    attributes:
+      label: 驗收標準（DoD）
+      description: 全部勾選才算可驗證的工作項；缺任一項會被 factory-issue-check 退回。
+      options:
+        - label: 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）
+          required: true
+        - label: 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）
+          required: true
+        - label: 跑測試確認綠燈（不跑需外部服務的 E2E）
+          required: true
+    validations:
+      required: true
+  - type: input
+    id: target_repo
+    attributes:
+      label: 目標 repo（預設本 repo）
+      description: owner/name；其他 repo 時請一併指定 base_branch
+      placeholder: philipz/uber_payment_poc

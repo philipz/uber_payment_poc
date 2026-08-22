@@ -1,0 +1,64 @@
+# uber_payment_poc risk hard rules（Node.js/TypeScript 金融賬本試點；依該 repo 實際結構，2026-08-22）。
+#
+# 觸及下列任一 pattern → risk = 2，無裁量空間（docs/06 §3.2, §5.2）。
+# H1–H4 源自 Gartner G00843405；H5–H7 為本專案擴充（guardrail 自我保護與不可逆操作）。
+# 此檔位於 .github/ 下，受 CODEOWNERS 保護——agent 不得修改約束自己的規則。
+#
+# 盤點依據（2026-08-22 `gh api .../git/trees/main?recursive=1`）：
+#   src/services/batch-process/（Hot Account 批次核心：OCC / Exactly-Once 提交）
+#   src/services/batch-creator/（批次歸集 + dashboard API）
+#   src/services/post-process/（審計軌跡持久化：Tentative/Committed）
+#   src/shared/（operations/lua/microuac/keys——賬本運算與冪等元數據）
+#   db/init.sql（schema：accounts/ledger/audit）
+#   docker-compose.yml（Redis/Postgres 連線與憑證）
+hard_rules:
+  # H1 — 授權/認證邏輯（此 repo 目前無 auth；保留 pattern 以防新增）
+  H1:
+    - "**/security/**"
+    - "**/auth/**"
+    - "**/jwt*"
+    - "**/UserDetails*"
+
+  # H2 — 財務計算（賬本/批次核心——batch-process 是系統的心臟：OCC、Exactly-Once、版本推進）
+  H2:
+    - "src/services/batch-process/**"
+    - "src/services/batch-creator/**"
+    - "src/services/post-process/**"
+    - "src/shared/operations.ts"
+    - "src/shared/lua.ts"
+    - "src/shared/microuac.ts"
+    - "src/shared/keys.ts"
+    - "**/ledger/**"
+    - "**/payment/**"
+
+  # H3 — 敏感資料處理（連線資訊/憑證：env 設定、compose、schema 內的使用者）
+  H3:
+    - "src/shared/config.ts"
+    - "src/shared/redis.ts"
+    - "docker-compose.yml"
+    - "**/.env*"
+
+  # H4 — systems of record 與共用模組（schema 資料庫 + 跨服務共用）
+  H4:
+    - "src/shared/**"
+    - "db/**"
+    - "src/services/load-generator/**"
+
+  # H5 — guardrail 自身（agent 不得修改）
+  H5:
+    - ".github/**"
+    - "CODEOWNERS"
+    - "catalog-info.yaml"
+    - ".dsh/skills/**"
+
+  # H6 — 不可逆 schema 遷移（init.sql 建立 accounts/audit 表；PoC 階段無 Flyway）
+  H6:
+    - "db/**"
+    - "**/*.sql"
+
+  # H7 — 對外 API 破壞性變更（dashboard REST、事件/契約 schema、health 端點）
+  H7:
+    - "src/services/batch-creator/dashboard.ts"
+    - "src/shared/events.ts"
+    - "src/shared/types.ts"
+    - "src/shared/health.ts"

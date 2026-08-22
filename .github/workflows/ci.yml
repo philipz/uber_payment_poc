@@ -2,8 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # software-factory 是工廠 trunk（stacked PR 的 base）——push 也需獨立綠燈
+    # （docs/07 §2.2「每層獨立綠燈」；試點 #3 教訓：觸發條件必須涵蓋 software-factory）
+    branches: [main, software-factory]
   pull_request:
+    # 不限制分支：涵蓋 factory/**（stacked PR 中間層 base 是前一層 factory/*）與一般分支
 
 jobs:
   unit:

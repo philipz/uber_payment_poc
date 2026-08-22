@@ -1,0 +1,33 @@
+# uber_payment_poc CODEOWNERS（Node.js/TypeScript 金融賬本試點）。
+#
+# 高風險路徑指定人類審查者：賬本/批次核心（H2）、設定/連線（H3）、schema（H6）、
+# 對外 API/事件（H7）必須由 @philipz 審查。依實際團隊成員調整。
+
+# 財務核心（H2）
+src/services/batch-process/       @philipz
+src/services/batch-creator/       @philipz
+src/services/post-process/        @philipz
+src/shared/operations.ts          @philipz
+src/shared/lua.ts                 @philipz
+src/shared/microuac.ts            @philipz
+src/shared/keys.ts                @philipz
+
+# 設定 / 連線資訊（H3）
+src/shared/config.ts              @philipz
+src/shared/redis.ts               @philipz
+docker-compose.yml                @philipz
+
+# schema（H6）
+db/                               @philipz
+
+# 對外 API / 事件（H7）
+src/services/batch-creator/dashboard.ts @philipz
+src/shared/events.ts              @philipz
+src/shared/types.ts               @philipz
+src/shared/health.ts              @philipz
+
+# guardrail 自身（H5）——agent 不得修改；改動須人類審查
+.github/                          @philipz
+CODEOWNERS                        @philipz
+catalog-info.yaml                 @philipz
+.dsh/skills/                      @philipz
