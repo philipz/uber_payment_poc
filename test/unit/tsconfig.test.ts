@@ -13,7 +13,7 @@ describe('tsconfig 與 TypeScript 7 相容', () => {
     compilerOptions: { moduleResolution?: string; module?: string };
   };
 
-  it.skip('moduleResolution 為 TS7 仍支援的值（非已移除的 node/node10）', () => {
+  it('moduleResolution 為 TS7 仍支援的值（非已移除的 node/node10）', () => {
     const { moduleResolution } = tsconfig.compilerOptions;
     expect(moduleResolution).toBeDefined();
     // TS7 已移除 node10；moduleResolution === 'node' 是 node10 的舊別名
