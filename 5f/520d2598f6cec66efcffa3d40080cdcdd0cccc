@@ -1,0 +1,16 @@
+.github/dependabot.yml
+  h_1b119f25eaf333 1-18
+.github/workflows/security-scan.yml
+  h_1b119f25eaf333 1-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5f520d2598f6cec66efcffa3d40080cdcdd0cccc",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
