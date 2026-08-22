@@ -17,11 +17,11 @@
   },
   "dependencies": {
     "ioredis": "^5.4.1",
-    "pg": "^8.13.1"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
-    "@types/pg": "^8.11.10",
+    "@types/pg": "^8.23.1",
     "prettier": "^3.9.6",
     "typescript": "^5.7.2",
     "vitest": "^4.1.11"
