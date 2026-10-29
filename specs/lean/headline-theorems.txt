@@ -1,0 +1,4 @@
+# One fully-qualified headline theorem name per line.
+UberPayment.earlyClose_two_tasks_same_window
+UberPayment.inv8_refuted_by_early_close
+UberPayment.inv8_under_deadline
